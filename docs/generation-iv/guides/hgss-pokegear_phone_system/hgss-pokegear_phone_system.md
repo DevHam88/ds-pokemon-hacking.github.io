@@ -60,11 +60,14 @@ The first four bytes are a little-endian entry count (75). They are followed by 
 | `06` | 2 | `mapId` | The contact's **map-header ID**. It controls local-call behaviour, random-call filtering, location text, and the limited rematch/gift map marker; see [What `mapId` controls](#what-mapid-controls). |
 | `08` | 2 | `gift` | Static item used by the trainer-gift field-script path. |
 | `0A` | 2 | `phoneScriptIfLocal` | Generic contact's outgoing phone script when the player is on this contact's `mapId`. |
-| `0C` | 1 | `unkC` | Unknown. Vanilla data commonly uses `FF`; this is not a proven definition. |
+| `0C` | 1 | `unkC` | Greeting-set index. Values `0`-`7` select a row from the shared phone-greeting table; `FF` suppresses the greeting. |
 | `0D` | 1 | `rematchWeekday` | Weekday used by the ordinary phone-trainer schedule and Gym Leader schedule. It is also gated by story/state checks; see [Schedule and story gates](#schedule-and-story-gates). |
 | `0E` | 1 | `rematchTimeOfDay` | Morning `0`, day `1`, or night `2`, used with the weekday by those schedule checks. |
 | `0F` | 1 | `unkF` | Random incoming-call "probability bucket". The game chooses bucket `0` (50% of the time), bucket `1` (30% of the time), and bucket `2` (20% of the time). |
-| `10` | 4 | `sortParam` | Not yet fully documented. Unknown impact. |
+| `10` | 1 | `sortParam[0]` | Stored Pokegear title-sort rank. |
+| `11` | 1 | `sortParam[1]` | Stored Pokegear alphabetical-sort rank. |
+| `12` | 1 | `sortParam[2]` | Stored Pokegear location-sort rank. |
+| `13` | 1 | `sortParam[3]` | Padding (`00` in vanilla). |
 
 :::caution  
 The first four bytes control how many 20-byte records the loader reads and allocates, however, they are **not** a safe "add a new contact" control by themselves.
@@ -105,7 +108,7 @@ The title label in the phone list is selected from the `trainerClass` text archi
 
 | title (`trainerClass` in decomp) range/value | Source of the displayed label |
 |---|---|
-| `0`-`199` | Normal trainer-class name data, via the standard trainer-class formatter. |
+| `0`-`199` | Normal trainer-class formatter. Vanilla class-name data is populated only through class `128`; a hack using `129`-`199` must also supply normal class-name text. |
 | `200` (`PHONE_MOM`) | Empty label. Mom displays no trainer class. |
 | `201`-`207` | Message archive 271, starting at message 38 plus `trainerClass - 201`. |
 
@@ -136,7 +139,7 @@ else:
     show the normal trainer-class name
 ```
 
-Therefore the safe range for a normal trainer class in an unpatched Pokegear phone UI is **0-199** (vanilla HGSS has trainer classes `0`-`128`). Values 200-207 are reserved for non-trainer phone contacts, but the comparison actually catches **every value from 201 upward**.
+Therefore the normal-class branch of an unpatched Pokegear phone UI accepts **0-199**, although vanilla class-name data exists only for `0`-`128`. Values 200-207 are reserved for non-trainer phone contacts, but the comparison actually catches **every value from 201 upward**.
 
 :::caution  
 If a hack adds normal trainer classes at 200 or above, changing the trainer-class text archive alone is insufficient.  
@@ -159,12 +162,15 @@ Trainer contacts carry their original battle ID, regardless of whether the conta
 `mapId` has several proven uses:
 
 - When a phone conversation is initialised, the location name of the header in `mapId` is stored in a message buffer (`3`), to be potentially used in conversations. The player's current location name is similarly stored in buffer `2`.
-- The Pokegear phone book can be sorted by location name (believed to be derived from `mapId`).
 - Random incoming calls exclude a contact when the player is on the same `mapId`.
 - Most special handlers and the generic handler use a same-map check to select their "local" response.
 - Every type-0 (generic) phone call prepares two Pokemon-name message buffers before it prints its selected archive message: buffer `10` receives a random member of the caller's `trainerId` battle party, and buffer `11` receives a species selected from the wild-encounter data for this `mapId`. For buffer `11`, a contact whose `trainerClass` byte is exactly `11` (`0x0B`, Fisherman) selects one of the five Good Rod slots (with the night-fishing replacement at night); all other values select one of the twelve land slots for the current morning/day/night. A map with no wild encounters supplies Rattata instead. This is implemented by `GearPhoneCall_Generic` and `getRandomEncounterSlot` in Pokegear Overlay 101's generic phone-script code.
 - If the contact's map-header ID is exactly `96` (`0x0060`, `MAP_NATIONAL_PARK`), the random incoming-call manager excludes that contact when flag `0x996` (`2454`, decomp name: `FLAG_UNK_996`) is set. The decomp calls its direct helper `Save_VarsFlags_CheckBugContestFlag`. The generic rematch/gift header conditions use the same check.
 - The Pokegear map shows its pending battle marker when a **generic** (`type = 0`) contact at that `mapId` has either a valid ordinary rematch or a queued **dynamic** phone gift.
+
+:::info  
+The Pokegear phone book's location sort uses the stored location rank at `sortParam[2]`; it does not derive an order from `mapId` at runtime.
+:::
 
 ---
 
@@ -181,10 +187,10 @@ Normal field scripts use the following command IDs. The first name is the establ
 
 ### Sorting phone numbers
 
-There are a number of ways of sorting phone numbers in the Pokegear:
-- Title (derived from trainer class description or special contact label)
-- Alphabet (by contact name, derived from the associated text archive message `0`)
-- Location (by location name, derived from `mapId`)
+There are a number of ways of sorting phone numbers in the Pokegear. The first three use a stored one-byte rank in each contact record, rather than recalculating from the displayed text or `mapId`:
+- Title (`sortParam[0]`)
+- Alphabet (`sortParam[1]`)
+- Location (`sortParam[2]`)
 - Manual arrangement
 
 ---
@@ -336,7 +342,7 @@ The existing two-byte `callTriggerFlags` field can store bit `13`; it does not r
 | ARM9 | `0x2F052` | `0D 29` | `0E 29` | Accept trigger ID `13` in the persistent-bit clearer. |
 | ARM9 | `0x2F08E` | `0D 29` | `0E 29` | Read trigger bit `13` in the persistent-bit checker. |
 | Overlay 2 | `0xC6A2` | `0D 21` | `0E 21` | Allocate 14 bytes for queued trigger candidates. |
-| Overlay 2 | `0xC6AA` | `0D 22` | `0E 22` | Clear all 14 candidate bytes. |
+| Overlay 2 | `0xC6AC` | `0D 22` | `0E 22` | Clear all 14 candidate bytes. |
 | Overlay 2 | `0xC6FA` | `0D 2C` | `0E 2C` | Scan trigger IDs `0` through `13`. |
 
 The ARM9 comparisons are the set, clear, and check helpers in `src/save_pokegear.c`; the Overlay 2 values are in `ov02_02252218` in `src/field/overlay_2_gear_phone.c`. The script command `0x0094` already accepts its trigger ID as a byte, so no command-format change is required.
@@ -449,7 +455,7 @@ bytes 2-3: little-endian header `scriptType` field
 bytes 4-5: little-endian phone-script definition ID
 ```
 
-The decomp names the middle word `scriptType`; its precise meaning depends on the condition and is not yet fully decoded. It must not be confused with the side-effect type stored in a phone-script definition.
+The decomp names the middle word `scriptType`. It is a playback-handler index: `0`, `1`, and `2` select the simple, species-buffering generic, and random-line handlers; higher values select specialised handlers. It must not be confused with the side-effect type stored in a phone-script definition.
 
 | Direction | Header rows | First-row offset for contact `c` |
 |---|---|---|
@@ -469,13 +475,14 @@ bytes 2-3: little-endian word: low 4 bits = side-effect type; upper 12 bits = pa
 bytes 4-5: little-endian parameter 1
 ```
 
-| Side-effect type | Result |
-|---|---|
-| `NONE` | Prints the selected message with no known persistent phone result. |
-| `REMATCH` | Sets the caller's pending rematch state. |
-| `ITEM` | Queues a dynamic phone gift for collection from the NPC. |
-| `FLAG` | Sets or clears a save flag. |
-| `WORD` | Inserts a random word or message fragment. |
+| Low-nibble value | Decomp name | Result |
+|:---:|---|---|
+| `0` | `NONE` | Prints the selected message with no known persistent phone result. |
+| `1` | `UNK1` | Sets or clears a save flag. Its observed implementation is the same as type `2`. |
+| `2` | `FLAG` | Sets or clears a save flag. |
+| `3` | `REMATCH` | Sets the caller's pending rematch state. |
+| `4` | `ITEM` | Queues a dynamic phone gift for collection from the NPC. |
+| `5` | `WORD` | Inserts a random word or message fragment. |
 
 The parameter meanings for every individual `ITEM`, `FLAG`, and `WORD` definition are not all documented. Do not alter a non-`NONE` definition's packed fields only because its text looks suitable.
 
@@ -538,7 +545,7 @@ The decomp provides these names as a readable source map for the binary logic:
 | `PhoneCall_GetScriptId_Generic` | `scripts/phone_scripts_generic.c` | Calculates `callerID * 16`, chooses the outgoing or incoming group, and returns the selected definition ID. |
 | `PhoneScriptGeneric_GetScriptIdInternal` | `scripts/phone_scripts_generic.c` | Walks at most eight headers, stops at `NIL` or `NONE`, evaluates conditions, and returns a definition ID. |
 | `PhoneCall_GetScriptDefPtrByID` | `overlay_101_021F1D74.c` | Resolves `gPhoneCallScriptDef[scriptID]`. |
-| `PhoneCall_ApplyGenericNPCcallSideEffect` | `overlay_101_021F1D74.c` | Interprets `REMATCH`, `ITEM`, `FLAG`, and `WORD` definition side effects. |
+| `PhoneCall_ApplyGenericNPCcallSideEffect` | `overlay_101_021F1D74.c` | Interprets `REMATCH`, `ITEM`, `UNK1`, `FLAG`, and `WORD` definition side effects. |
 
 The first definition records are `00 00 00 00 00 00` for ID 0, `01 02 00 00 00 00` for `PHONE_SCRIPT_001`, and `21 22 00 00 00 00` for `PHONE_SCRIPT_002`. These first scripts are Elm messages; copying one to another contact can point at different text because the message archive changes.
 
