@@ -25,7 +25,7 @@ Every Pokegear phone number has a **contact ID**. That one-byte ID connects seve
 | Data | Pokegear contact data | `tel/pmtel_book.dat` | Contact type, base trainer ID, map location, item, local-call script, schedule, and random-call bucket. |
 | Data | Phone conversation texts | `sPhoneMessageGmm` | The message archive used for that contact's name and phone text. |
 | Data | Rematch trainer ID lookup | Overlay 26, file offset `0x20C` | The ordinary trainer rematch battle IDs. |
-| Game code | Phone call code | TBC | The logic that chooses dialogue for the current contact, direction, map, day, time, and story state. |
+| Game code | Phone call code | ARM9 and Overlays 2, 26, and 101 | The logic that chooses dialogue for the current contact, direction, map, day, time, and story state. |
 | Save file | Saved Pokegear phonebook | N/A | Whether the player has registered the contact. |
 | Save file | Persistent phone state | N/A | Pending rematches, pending gifts, and queued event calls. |
 
@@ -54,7 +54,7 @@ The first four bytes are a little-endian entry count (75). They are followed by 
 |:---:|:---:|---|---|
 | `00` | 1 | `id` | Contact ID (`PHONE_CONTACT_*`). |
 | `01` | 1 | `type` | Phone call handler type. Values 0-15 select: generic, Mom, Elm, Gym Leader, and other specialised call logic; see [Contact type values](#contact-type-values). |
-| `02` | 1 | `unk2` | Unknown. |
+| `02` | 1 | `unk2` | Unknown. No direct reader was found in the current public decomp, but that is not proof it is unused in vanilla binary code; leave it unchanged. |
 | `03` | 1 | `trainerClass` | Title label shown in the Pokegear contact list. Standard trainer classes and special phone-contact labels use different text paths; see [Contact-list class text](#contact-list-class-text). |
 | `04` | 2 | `trainerId` | The contact's original trainer battle ID, or `TRAINER_NONE` (`0`) for a non-trainer. Ordinary trainer rematches use this to find an overlay 26 rematch lookup row. |
 | `06` | 2 | `mapId` | The contact's **map-header ID**. It controls local-call behaviour, random-call filtering, location text, and the limited rematch/gift map marker; see [What `mapId` controls](#what-mapid-controls). |
@@ -254,7 +254,7 @@ The call starts with `isScriptedCall = 0`. A type-0 contact uses the generic dia
 <details>
 <summary>Click for details...</summary>
 
-This is a literal chain of five comparisons in the random-candidate builder, identified by the decomp as `ov02_02251FDC` in `src/field/overlay_2_gear_phone.c`:
+At US decompressed Overlay 2 file offset `0xC45C` (RAM `0x02251FDC`), the random-candidate builder contains this literal chain of five comparisons:
 
 ```text
 type == 0 || type == 12 || type == 11 || type == 10 || type == 14
@@ -279,7 +279,7 @@ The random-caller history is persistent save data, not a timer. It is the eight-
 
 The candidate builder checks only the history range for the bucket chosen at step 3. A matching contact ID is excluded. If the history already contains every current eligible candidate in that bucket, it clears that bucket's history before filtering so that the pool cannot become empty forever. When the player accepts an ordinary random incoming call, the selected contact ID is appended to that bucket's range; if it is full, the oldest entry is discarded. Queued event and field-scripted calls do not use this history.
 
-The filter is in US Overlay 2 function `0xC45C` / RAM `0x02251FDC`; the save helpers are identified by the decomp as `sub_0202AA44`, `sub_0202AA9C`, `sub_0202AAD4`, and `sub_0202AB18` in `src/save_misc.c`. The actual save-file location of the containing `SAVE_MISC_DATA` block is outside the scope of this page; use its structure-relative offset rather than assuming a fixed offset in every save file.
+The filter is at US Overlay 2 file offset `0xC45C` / RAM `0x02251FDC`; the save helpers are identified by the decomp as `sub_0202AA44`, `sub_0202AA9C`, `sub_0202AAD4`, and `sub_0202AB18` in `src/save_misc.c`. The actual save-file location of the containing `SAVE_MISC_DATA` block is outside the scope of this page; use its structure-relative offset rather than assuming a fixed offset in every save file.
 
 </details>
 
@@ -291,7 +291,7 @@ Queued event calls are not ordinary random calls and are not entries in the norm
 
 In vanilla, native game code sets these bits when it detects its own condition, such as an Egg hatching, cycling 1,024 steps, or a full PC. Field scripts can also set one with unnamed command `ScrCmd_148` (`0x0094`): it takes two bytes, `triggerId` (`0`-`12`) and `expedite` (`0` or nonzero). It sets that trigger bit; when `expedite` is nonzero, it advances the shared incoming-call timer to one minute before its threshold if necessary. `UnsetPhoneCallTrigger` (`0x0095`) takes one `triggerId` byte and clears that bit.  
 
-The caller, predefined phone script, and pickup behavior do not live in the bitfield. They come from a separate 13-record table in the field/ring-manager code, identified by the decomp as `ov02_02253C84` in `src/field/overlay_2_gear_phone.c` (Overlay 2). The table's RAM address `0x02253C84` converts to **file offset `0xE104`**. It occupies `0x4E` bytes: `0xE104` through `0xE151` inclusive. Record `n` is the definition for trigger bit `n`; its file offset is `0xE104 + (n * 6)`.
+The caller, predefined phone script, and pickup behavior do not live in the bitfield. They come from a separate 13-record table in Overlay 2 (`ov02_02253C84` in `src/field/overlay_2_gear_phone.c`). Its RAM address `0x02253C84` converts to **file offset `0xE104`**. It occupies `0x4E` bytes: `0xE104` through `0xE151` inclusive. Record `n` is the definition for trigger bit `n`; its file offset is `0xE104 + (n * 6)`.
 
 ```text
 callerId (u8), unknown (u8), phoneScriptId (u16 little-endian), forcePickUp (u8), unknown (u8)
@@ -376,28 +376,18 @@ The event-record table above defines what each pending bit does. This table inst
 
 </details>
 
-##### Example: Togepi Egg hatches call
-
-When the gift Togepi Egg hatches, system code sets trigger bit `0` (`ELM_EGG_HATCHED`). Its US event-table record is at `0xE104` and selects Elm with `PHONE_SCRIPT_013`. It is an incoming queued call: it waits for the incoming-call path and is not a normal random contact call or a field script directly opening the Pokegear.
-
-##### Example: Mom's purchased items
-
-Mom's purchase call and the actual item collection are intentionally separate. Her call announces the purchase; the item is stored in her gift queue. The home field script retrieves the item, checks Bag space, and clears `CALL_TRIGGER_MOM_BOUGHT_SOMETHING` only after a successful item award.
+Mom's purchase call and the item collection are separate: the queued call announces the purchase, while the home field script retrieves the stored item, checks Bag space, and clears `CALL_TRIGGER_MOM_BOUGHT_SOMETHING` only after a successful award.
 
 ---
 
 ### Incoming: field-script trigger
 
-Not every incoming call uses the queued trigger-bit table. A normal field script can configure and immediately launch a phone call with these commands:
+Not every incoming call uses the queued trigger-bit table. A normal field script can configure and immediately launch a phone call with these commands. Elm's stolen-Pokemon call is a vanilla direct field-scripted call: it selects `PHONE_SCRIPT_002` and does not set or consume any queued event-trigger bit.
 
-| Opcode | scrcmd / editor name | Decomp name | Use |
+| Opcode | scrcmd / editor name | Source name | Use |
 |---|---|---|---|
 | `0x01AE` | `SetPhoneCall contact scriptedFlag predefinedScript` | `SetPhoneCall` | Configure a field-scripted phone call. |
 | `0x01AF` | `RunPhoneCall` | `RunPhoneCall` | Launch the configured phone call. |
-
-#### Example: Elm's stolen Pokemon call
-
-Elm has a map-script call table with five entries. Entry 0 selects `PHONE_SCRIPT_002`, the “disaster” call after the stolen Pokemon event. It is launched directly by a field script and does not set or consume any of the 13 queued event-trigger bits.
 
 ---
 
@@ -488,7 +478,7 @@ The parameter meanings for every individual `ITEM`, `FLAG`, and `WORD` definitio
 
 ### Contact text archives
 
-Each contact ID maps to one phone message archive through `sPhoneMessageGmm` in `phonebook_dat.c`; Mom, for example, maps to `NARC_msg_msg_0664_bin`. Message **0** in that archive is the name displayed for an incoming call.
+Each contact ID maps to one phone message archive through `sPhoneMessageGmm` in `phonebook_dat.c`; Mom, for example, maps to `NARC_msg_msg_0664_bin`. Message **0** in that archive is the contact name displayed by the phone-call UI.
 
 The selected phone-script definition provides the next message ID, which is read from that same contact archive. Therefore one definition ID can produce different wording when used by another contact: its message numbers are reinterpreted against that other contact's archive.
 
@@ -509,30 +499,6 @@ Changing a generic header does not change these special, queued, or field-script
 | Remove a rematch offer | Repoint its header to a known ordinary-dialogue definition, leaving the original definition intact for other users. | Prevents the `seeking` side effect only for that header. | Confirm no map marker or rematch battle appears after the call. |
 | Add a definition or condition | Requires verified free Overlay 101 space, a valid new ID, and further code tracing. | Not yet a documented safe binary edit. | Do not treat an appended six-byte record as usable without that work. |
 
-#### Example: change dialogue only
-
-Identify a phone-script definition used by a known call, then edit its selected message in that caller's text archive rather than changing the definition or header.
-
-**Test:** trigger the same call under the same conditions. The revised wording must appear, while rematch state, gift state, flags, and later calls remain unchanged.
-
-#### Example: repoint one incoming generic call
-
-Pick a generic contact whose incoming header block has a harmless, recognisable line. Change that header's two-byte definition ID to an existing `PHONESCRIPTTYPE_NONE` definition.
-
-**Test:** provoke that incoming outcome. It should use the replacement message while the contact's other outcomes still occur. The player must not receive an item, a rematch, or a flag change. If every incoming conversation changed, the wrong row or an incorrect fixed-stride calculation was used.
-
-#### Example: turn a rematch offer into ordinary dialogue
-
-Locate a known generic header that points at a `PHONESCRIPTTYPE_REMATCH` definition. Repoint the header to an existing `NONE` definition, leaving the original definition in place for other contacts.
-
-**Test:** after enough calls to reach that header's condition, the caller displays ordinary dialogue and does not offer a rematch. Check the map marker and trainer interaction afterward: no pending rematch should exist.
-
-#### Example: prove the contact-name mapping
-
-Change message `0` in a known contact's mapped archive, then trigger an incoming call from that contact.
-
-**Test:** only the caller name shown at the top of the incoming-call screen should change. The call's selection rules and side effects should remain identical.
-
 ### Advanced reference: code and raw records
 
 <details>
@@ -551,7 +517,7 @@ The first definition records are `00 00 00 00 00 00` for ID 0, `01 02 00 00 00 0
 
 The first header is `00 64 00 00 00 00`: `NIL`, chance `100`, and definition ID 0. The following unused header is `FF 00 00 00 00 00`: `NONE`.
 
-The compiled function entry offsets for the generic selector and definition interpreter have not yet been independently mapped in US Overlay 101 and should not be guessed from a decomp source filename.
+The compiled function entries for the generic selector and definition interpreter have not yet been independently mapped in US Overlay 101 and should not be guessed from a decomp source filename. The handler-dispatch table itself is mapped: US Overlay 101 file offset `0x10F3C` contains Thumb pointers. Handler indices `0`, `1`, and `2` point to `0x021F2681`, `0x021F2F51`, and `0x021F2FFD` respectively.
 
 </details>
 
@@ -575,7 +541,7 @@ The six entries are:
 
 | Entry | Relative offset | Meaning |
 |:---:|:---:|---|
-| `0` | `00` | Original/base battle ID. The rematch lookup does not select this entry. |
+| `0` | `00` | Original/base battle ID. Normally not selected, but it can be returned as a fallback; keep it valid. |
 | `1` | `02` | Duplicate base battle ID: first selectable entry before rematch groups are unlocked. |
 | `2` | `04` | Rematch battle 1. |
 | `3` | `06` | Rematch battle 2. |
@@ -588,96 +554,94 @@ The normal flow is:
 2. The trainer battle lookup checks that bit and uses the contact's `trainerId` to find its row.
 3. It tests entries from index `1` through `5`, selecting the first unbeaten entry whose rematch-group requirements are unlocked.
 
-The lookup deliberately begins at index `1`; index `0` records the original battle for table association, while index `1` is the first battle the rematch code can select. It falls back to an earlier eligible entry if a later rematch group is not unlocked.
+The initial scan begins at index `1`, so index `1` is normally the first rematch battle. However, index `0` is a real return value, not an unreachable dummy: it is returned when the scan encounters `0` at index `1`, and it can also be the fallback when a later rematch group is not unlocked.  
+
+:::caution
+`0xFFFF` is skipped only while the rematch code searches for an unbeaten candidate or walks backwards for an unlocked fallback. It is not skipped when the scan sees a `0` terminator and returns the preceding index, and the resulting trainer ID is not validated. A malformed custom layout can therefore return literal trainer ID `0xFFFF`; do not use `0xFFFF` as a repeat marker or immediately before a `0` terminator.
+:::
 
 :::warning
 `0x20C` is a **US Overlay 26 file offset**, not an ARM9 address and not an offset in `pmtel_book.dat`. It must be independently located for another game revision before editing. Do not insert or delete bytes: the game indexes fixed 12-byte rows.
 :::
 
-### Example: replace one trainer's first rematch battle
-
-To change Picnicker Erin's first rematch battle, use row `1`: `0x20C + (1 * 0x0C) = 0x218`. Her first rematch is entry `2`, at `0x218 + 0x04 = 0x21C`. Replace that little-endian trainer battle ID with the ID of an existing compatible trainer battle.
-
-**Test:** use a save where Erin is registered, her phone rematch has been offered, and the relevant rematch group is unlocked. Defeat her. The battle at that stage must be the replacement trainer battle; her original battle and later rematch stages must remain unchanged. If the initial rematch is unchanged, confirm the group gate and that entry `2`, rather than entry `0` or `1`, was edited.
-
 ### Vanilla US Overlay 26 table
 
-The following binary-table export is from the local community research supplied by **Eclipse (Luna)**. Symbols are decomp-readable labels for the six `u16` values; in the ROM they are their corresponding little-endian numeric trainer battle IDs.
+The following binary-table export is from local community research supplied by **Eclipse (Luna)**, cross-checked against the HeartGold trainer-ID constants. Each cell gives the trainer battle ID followed by its decomp label. Write the ID as a little-endian `u16` in the ROM: for example, ID `151` is `0x0097`, or bytes `97 00`.
 
 <details>
 <summary>Show all 63 rows</summary>
 
 | Row | Entry 0: base | Entry 1: duplicate base | Entry 2 | Entry 3 | Entry 4 | Entry 5 |
 |:---:|---|---|---|---|---|---|
-| 0 | `TRAINER_BIRD_KEEPER_GS_JOSE_2` | `TRAINER_BIRD_KEEPER_GS_JOSE_2` | `TRAINER_BIRD_KEEPER_GS_JOSE` | `TRAINER_BIRD_KEEPER_GS_JOSE_3` | `TRAINER_BIRD_KEEPER_GS_JOSE_4` | `TRAINER_NONE` |
-| 1 | `TRAINER_PICNICKER_ERIN` | `TRAINER_PICNICKER_ERIN` | `TRAINER_PICNICKER_ERIN_2` | `TRAINER_PICNICKER_ERIN_3` | `TRAINER_PICNICKER_ERIN_4` | `TRAINER_NONE` |
-| 2 | `TRAINER_PICNICKER_LIZ` | `TRAINER_PICNICKER_LIZ` | `TRAINER_PICNICKER_LIZ_2` | `TRAINER_PICNICKER_LIZ_3` | `TRAINER_PICNICKER_LIZ_4` | `TRAINER_NONE` |
-| 3 | `TRAINER_SCHOOL_KID_M_CHAD` | `TRAINER_SCHOOL_KID_M_CHAD` | `TRAINER_SCHOOL_KID_M_CHAD_2` | `TRAINER_SCHOOL_KID_M_CHAD_3` | `TRAINER_SCHOOL_KID_M_CHAD_4` | `TRAINER_NONE` |
-| 4 | `TRAINER_SAILOR_HUEY` | `TRAINER_SAILOR_HUEY` | `TRAINER_SAILOR_HUEY_2` | `TRAINER_SAILOR_HUEY_3` | `TRAINER_SAILOR_HUEY_4` | `TRAINER_NONE` |
-| 5 | `TRAINER_BUG_CATCHER_WADE` | `TRAINER_BUG_CATCHER_WADE` | `TRAINER_BUG_CATCHER_WADE_3` | `TRAINER_BUG_CATCHER_WADE_2` | `TRAINER_BUG_CATCHER_WADE_4` | `TRAINER_NONE` |
-| 6 | `TRAINER_YOUNGSTER_JOEY` | `TRAINER_YOUNGSTER_JOEY` | `TRAINER_YOUNGSTER_JOEY_2` | `TRAINER_YOUNGSTER_JOEY_3` | `TRAINER_YOUNGSTER_JOEY_4` | `TRAINER_NONE` |
-| 7 | `TRAINER_SCHOOL_KID_M_JACK` | `TRAINER_SCHOOL_KID_M_JACK` | `TRAINER_SCHOOL_KID_M_JACK_2` | `TRAINER_SCHOOL_KID_M_JACK_3` | `TRAINER_SCHOOL_KID_M_JACK_3` | `TRAINER_NONE` |
-| 8 | `TRAINER_ACE_TRAINER_M_GAVEN` | `TRAINER_ACE_TRAINER_M_GAVEN` | `TRAINER_ACE_TRAINER_M_GAVEN_2` | `TRAINER_ACE_TRAINER_M_GAVEN_3` | `TRAINER_ACE_TRAINER_M_GAVEN_4` | `TRAINER_NONE` |
-| 9 | `TRAINER_BLACK_BELT_KENJI` | `TRAINER_BLACK_BELT_KENJI` | `TRAINER_BLACK_BELT_KENJI_2` | `TRAINER_BLACK_BELT_KENJI_3` | `TRAINER_BLACK_BELT_KENJI_4` | `TRAINER_NONE` |
-| 10 | `TRAINER_HIKER_PARRY` | `TRAINER_HIKER_PARRY` | `TRAINER_HIKER_PARRY_2` | `TRAINER_HIKER_PARRY_3` | `TRAINER_HIKER_PARRY_4` | `TRAINER_NONE` |
-| 11 | `TRAINER_PICNICKER_TIFFANY` | `TRAINER_PICNICKER_TIFFANY` | `TRAINER_PICNICKER_TIFFANY_2` | `TRAINER_PICNICKER_TIFFANY_3` | `TRAINER_PICNICKER_TIFFANY_4` | `TRAINER_NONE` |
-| 12 | `TRAINER_HIKER_ANTHONY` | `TRAINER_HIKER_ANTHONY` | `TRAINER_HIKER_ANTHONY_2` | `TRAINER_HIKER_ANTHONY_3` | `TRAINER_HIKER_ANTHONY_4` | `TRAINER_NONE` |
-| 13 | `TRAINER_ACE_TRAINER_F_REENA` | `TRAINER_ACE_TRAINER_F_REENA` | `TRAINER_ACE_TRAINER_F_REENA_2` | `TRAINER_ACE_TRAINER_F_REENA_3` | `TRAINER_ACE_TRAINER_F_REENA_4` | `TRAINER_NONE` |
-| 14 | `TRAINER_FISHERMAN_WILTON` | `TRAINER_FISHERMAN_WILTON` | `TRAINER_FISHERMAN_WILTON_2` | `TRAINER_FISHERMAN_WILTON_3` | `TRAINER_FISHERMAN_WILTON_4` | `TRAINER_NONE` |
-| 15 | `TRAINER_ACE_TRAINER_F_JAMIE` | `TRAINER_ACE_TRAINER_F_JAMIE` | `TRAINER_ACE_TRAINER_F_JAMIE_2` | `TRAINER_ACE_TRAINER_F_JAMIE_3` | `TRAINER_ACE_TRAINER_F_JAMIE_4` | `TRAINER_NONE` |
-| 16 | `TRAINER_JUGGLER_IRWIN` | `TRAINER_JUGGLER_IRWIN` | `TRAINER_JUGGLER_IRWIN_2` | `TRAINER_JUGGLER_IRWIN_3` | `TRAINER_JUGGLER_IRWIN_4` | `TRAINER_NONE` |
-| 17 | `TRAINER_POKE_MANIAC_BRENT` | `TRAINER_POKE_MANIAC_BRENT` | `TRAINER_POKE_MANIAC_BRENT_2` | `TRAINER_POKE_MANIAC_BRENT_3` | `TRAINER_POKE_MANIAC_BRENT_4` | `TRAINER_NONE` |
-| 18 | `TRAINER_SCHOOL_KID_M_ALAN` | `TRAINER_SCHOOL_KID_M_ALAN` | `TRAINER_SCHOOL_KID_M_ALAN_2` | `TRAINER_SCHOOL_KID_M_ALAN_3` | `TRAINER_SCHOOL_KID_M_ALAN_4` | `TRAINER_NONE` |
-| 19 | `TRAINER_POKEFAN_M_DEREK` | `TRAINER_POKEFAN_M_DEREK` | `TRAINER_POKEFAN_M_DEREK_2` | `TRAINER_POKEFAN_M_DEREK_3` | `TRAINER_POKEFAN_M_DEREK_4` | `TRAINER_NONE` |
-| 20 | `TRAINER_PICNICKER_GINA` | `TRAINER_PICNICKER_GINA` | `TRAINER_PICNICKER_GINA_2` | `TRAINER_PICNICKER_GINA_3` | `TRAINER_PICNICKER_GINA_4` | `TRAINER_NONE` |
-| 21 | `TRAINER_FISHERMAN_TULLY` | `TRAINER_FISHERMAN_TULLY` | `TRAINER_FISHERMAN_TULLY_2` | `TRAINER_FISHERMAN_TULLY_3` | `TRAINER_FISHERMAN_TULLY_4` | `TRAINER_NONE` |
-| 22 | `TRAINER_POKEFAN_BEVERLY` | `TRAINER_POKEFAN_BEVERLY` | `TRAINER_POKEFAN_BEVERLY_2` | `TRAINER_POKEFAN_BEVERLY_3` | `TRAINER_POKEFAN_BEVERLY_4` | `TRAINER_NONE` |
-| 23 | `TRAINER_BIRD_KEEPER_GS_VANCE` | `TRAINER_BIRD_KEEPER_GS_VANCE` | `TRAINER_BIRD_KEEPER_GS_VANCE_2` | `TRAINER_BIRD_KEEPER_GS_VANCE_3` | `TRAINER_BIRD_KEEPER_GS_VANCE_4` | `TRAINER_NONE` |
-| 24 | `TRAINER_FISHERMAN_RALPH` | `TRAINER_FISHERMAN_RALPH` | `TRAINER_FISHERMAN_RALPH_2` | `TRAINER_FISHERMAN_RALPH_3` | `TRAINER_FISHERMAN_RALPH_4` | `TRAINER_NONE` |
-| 25 | `TRAINER_CAMPER_TODD` | `TRAINER_CAMPER_TODD` | `TRAINER_CAMPER_TODD_2` | `TRAINER_CAMPER_TODD_3` | `TRAINER_CAMPER_TODD_4` | `TRAINER_NONE` |
-| 26 | `TRAINER_BUG_CATCHER_ARNIE` | `TRAINER_BUG_CATCHER_ARNIE` | `TRAINER_BUG_CATCHER_ARNIE_2` | `TRAINER_BUG_CATCHER_ARNIE_3` | `TRAINER_BUG_CATCHER_ARNIE_4` | `TRAINER_NONE` |
-| 27 | `TRAINER_LASS_DANA` | `TRAINER_LASS_DANA` | `TRAINER_LASS_DANA_2` | `TRAINER_LASS_DANA_3` | `TRAINER_LASS_DANA_4` | `TRAINER_NONE` |
-| 28 | `TRAINER_LASS_KRISE` | `TRAINER_LASS_KRISE` | `TRAINER_LASS_KRISE_2` | `TRAINER_LASS_KRISE_3` | `TRAINER_LASS_KRISE_4` | `TRAINER_NONE` |
-| 29 | `TRAINER_YOUNGSTER_IAN` | `TRAINER_YOUNGSTER_IAN` | `TRAINER_YOUNGSTER_IAN_2` | `TRAINER_YOUNGSTER_IAN_3` | `TRAINER_YOUNGSTER_IAN_4` | `TRAINER_NONE` |
-| 30 | `TRAINER_FIREBREATHER_WALT` | `TRAINER_FIREBREATHER_WALT` | `TRAINER_FIREBREATHER_WALT_2` | `TRAINER_FIREBREATHER_WALT_3` | `TRAINER_FIREBREATHER_WALT_4` | `TRAINER_NONE` |
-| 31 | `TRAINER_BUG_CATCHER_DOUG` | `TRAINER_BUG_CATCHER_DOUG` | `TRAINER_BUG_CATCHER_DOUG_2` | `TRAINER_BUG_CATCHER_DOUG_3` | `TRAINER_BUG_CATCHER_DOUG_4` | `TRAINER_NONE` |
-| 32 | `TRAINER_BUG_CATCHER_ROB` | `TRAINER_BUG_CATCHER_ROB` | `TRAINER_BUG_CATCHER_ROB_2` | `TRAINER_BUG_CATCHER_ROB_3` | `TRAINER_BUG_CATCHER_ROB_4` | `TRAINER_NONE` |
-| 33 | `TRAINER_BIKER_REESE` | `TRAINER_BIKER_REESE` | `TRAINER_BIKER_REESE_2` | `TRAINER_BIKER_REESE_3` | `TRAINER_BIKER_REESE_4` | `TRAINER_NONE` |
-| 34 | `TRAINER_BIKER_AIDEN` | `TRAINER_BIKER_AIDEN` | `TRAINER_BIKER_AIDEN_2` | `TRAINER_BIKER_AIDEN_2` | `TRAINER_BIKER_AIDEN_4` | `TRAINER_NONE` |
-| 35 | `TRAINER_BIKER_ERNEST` | `TRAINER_BIKER_ERNEST` | `TRAINER_BIKER_ERNEST_2` | `TRAINER_BIKER_ERNEST_3` | `TRAINER_BIKER_ERNEST_4` | `TRAINER_NONE` |
-| 36 | `TRAINER_TEACHER_HILLARY` | `TRAINER_TEACHER_HILLARY` | `TRAINER_TEACHER_HILLARY_2` | `TRAINER_TEACHER_HILLARY_3` | `TRAINER_TEACHER_HILLARY_4` | `TRAINER_NONE` |
-| 37 | `TRAINER_SCHOOL_KID_M_BILLY` | `TRAINER_SCHOOL_KID_M_BILLY` | `TRAINER_SCHOOL_KID_M_BILLY_2` | `TRAINER_SCHOOL_KID_M_BILLY_3` | `TRAINER_SCHOOL_KID_M_BILLY_4` | `TRAINER_NONE` |
-| 38 | `TRAINER_TWINS_KAY_AND_TIA` | `TRAINER_TWINS_KAY_AND_TIA` | `TRAINER_TWINS_KAY_AND_TIA_2` | `TRAINER_TWINS_KAY_AND_TIA_3` | `TRAINER_TWINS_KAY_AND_TIA_4` | `TRAINER_NONE` |
-| 39 | `TRAINER_BIRD_KEEPER_GS_JOSH` | `TRAINER_BIRD_KEEPER_GS_JOSH` | `TRAINER_BIRD_KEEPER_GS_JOSH_2` | `TRAINER_BIRD_KEEPER_GS_JOSH_3` | `TRAINER_BIRD_KEEPER_GS_JOSH_4` | `TRAINER_NONE` |
-| 40 | `TRAINER_SCHOOL_KID_M_TORIN` | `TRAINER_SCHOOL_KID_M_TORIN` | `TRAINER_SCHOOL_KID_M_TORIN_2` | `TRAINER_SCHOOL_KID_M_TORIN_3` | `TRAINER_SCHOOL_KID_M_TORIN_4` | `TRAINER_NONE` |
-| 41 | `TRAINER_YOUNG_COUPLE_TIM_AND_SUE` | `TRAINER_YOUNG_COUPLE_TIM_AND_SUE` | `TRAINER_YOUNG_COUPLE_TIM_AND_SUE_2` | `TRAINER_YOUNG_COUPLE_TIM_AND_SUE_3` | `TRAINER_YOUNG_COUPLE_TIM_AND_SUE_4` | `TRAINER_NONE` |
-| 42 | `TRAINER_HIKER_KENNY` | `TRAINER_HIKER_KENNY` | `TRAINER_HIKER_KENNY_2` | `TRAINER_HIKER_KENNY_3` | `TRAINER_HIKER_KENNY_4` | `TRAINER_NONE` |
-| 43 | `TRAINER_CAMPER_TANNER` | `TRAINER_CAMPER_TANNER` | `TRAINER_CAMPER_TANNER_2` | `TRAINER_CAMPER_TANNER_3` | `TRAINER_CAMPER_TANNER_4` | `TRAINER_NONE` |
-| 44 | `TRAINER_FISHERMAN_KYLE` | `TRAINER_FISHERMAN_KYLE` | `TRAINER_FISHERMAN_KYLE_2` | `TRAINER_FISHERMAN_KYLE_3` | `TRAINER_FISHERMAN_KYLE_4` | `TRAINER_NONE` |
-| 45 | `TRAINER_FISHERMAN_KYLER` | `TRAINER_FISHERMAN_KYLER` | `TRAINER_FISHERMAN_KYLER_2` | `TRAINER_FISHERMAN_KYLER_3` | `TRAINER_FISHERMAN_KYLER_4` | `TRAINER_NONE` |
-| 46 | `TRAINER_GENTLEMAN_ALFRED` | `TRAINER_GENTLEMAN_ALFRED` | `TRAINER_GENTLEMAN_ALFRED_2` | `TRAINER_GENTLEMAN_ALFRED_3` | `TRAINER_GENTLEMAN_ALFRED_4` | `TRAINER_NONE` |
-| 47 | `TRAINER_LEADER_FALKNER_FALKNER` | `TRAINER_LEADER_FALKNER_FALKNER` | `TRAINER_LEADER_FALKNER_FALKNER_2` | `TRAINER_NONE` | `TRAINER_NONE` | `TRAINER_NONE` |
-| 48 | `TRAINER_LEADER_BUGSY_BUGSY` | `TRAINER_LEADER_BUGSY_BUGSY` | `TRAINER_LEADER_BUGSY_BUGSY_2` | `TRAINER_NONE` | `TRAINER_NONE` | `TRAINER_NONE` |
-| 49 | `TRAINER_LEADER_WHITNEY` | `TRAINER_LEADER_WHITNEY` | `TRAINER_LEADER_WHITNEY_2` | `TRAINER_NONE` | `TRAINER_NONE` | `TRAINER_NONE` |
-| 50 | `TRAINER_LEADER_MORTY_MORTY` | `TRAINER_LEADER_MORTY_MORTY` | `TRAINER_LEADER_MORTY_MORTY_2` | `TRAINER_NONE` | `TRAINER_NONE` | `TRAINER_NONE` |
-| 51 | `TRAINER_LEADER_JASMINE_JASMINE` | `TRAINER_LEADER_JASMINE_JASMINE` | `TRAINER_LEADER_JASMINE_JASMINE_2` | `TRAINER_NONE` | `TRAINER_NONE` | `TRAINER_NONE` |
-| 52 | `TRAINER_LEADER_CHUCK_CHUCK` | `TRAINER_LEADER_CHUCK_CHUCK` | `TRAINER_LEADER_CHUCK_CHUCK_2` | `TRAINER_NONE` | `TRAINER_NONE` | `TRAINER_NONE` |
-| 53 | `TRAINER_LEADER_PRYCE_PRYCE` | `TRAINER_LEADER_PRYCE_PRYCE` | `TRAINER_LEADER_PRYCE_PRYCE_2` | `TRAINER_NONE` | `TRAINER_NONE` | `TRAINER_NONE` |
-| 54 | `TRAINER_LEADER_CLAIR_CLAIR` | `TRAINER_LEADER_CLAIR_CLAIR` | `TRAINER_LEADER_CLAIR_CLAIR_2` | `TRAINER_NONE` | `TRAINER_NONE` | `TRAINER_NONE` |
-| 55 | `TRAINER_LEADER_BROCK_BROCK` | `TRAINER_LEADER_BROCK_BROCK` | `TRAINER_LEADER_BROCK_BROCK_2` | `TRAINER_NONE` | `TRAINER_NONE` | `TRAINER_NONE` |
-| 56 | `TRAINER_LEADER_MISTY_MISTY` | `TRAINER_LEADER_MISTY_MISTY` | `TRAINER_LEADER_MISTY_MISTY_2` | `TRAINER_NONE` | `TRAINER_NONE` | `TRAINER_NONE` |
-| 57 | `TRAINER_LEADER_LT_SURGE_LT__SURGE` | `TRAINER_LEADER_LT_SURGE_LT__SURGE` | `TRAINER_LEADER_LT_SURGE_LT__SURGE_2` | `TRAINER_NONE` | `TRAINER_NONE` | `TRAINER_NONE` |
-| 58 | `TRAINER_LEADER_ERIKA_ERIKA` | `TRAINER_LEADER_ERIKA_ERIKA` | `TRAINER_LEADER_ERIKA_ERIKA_2` | `TRAINER_NONE` | `TRAINER_NONE` | `TRAINER_NONE` |
-| 59 | `TRAINER_LEADER_JANINE_JANINE` | `TRAINER_LEADER_JANINE_JANINE` | `TRAINER_LEADER_JANINE_JANINE_2` | `TRAINER_NONE` | `TRAINER_NONE` | `TRAINER_NONE` |
-| 60 | `TRAINER_LEADER_SABRINA_SABRINA` | `TRAINER_LEADER_SABRINA_SABRINA` | `TRAINER_LEADER_SABRINA_SABRINA_2` | `TRAINER_NONE` | `TRAINER_NONE` | `TRAINER_NONE` |
-| 61 | `TRAINER_LEADER_BLAINE_BLAINE` | `TRAINER_LEADER_BLAINE_BLAINE` | `TRAINER_LEADER_BLAINE_BLAINE_2` | `TRAINER_NONE` | `TRAINER_NONE` | `TRAINER_NONE` |
-| 62 | `TRAINER_LEADER_BLUE_BLUE` | `TRAINER_LEADER_BLUE_BLUE` | `TRAINER_LEADER_BLUE_BLUE_2` | `TRAINER_NONE` | `TRAINER_NONE` | `TRAINER_NONE` |
+| 0 | `414` (`TRAINER_BIRD_KEEPER_GS_JOSE_2`) | `414` (`TRAINER_BIRD_KEEPER_GS_JOSE_2`) | `303` (`TRAINER_BIRD_KEEPER_GS_JOSE`) | `446` (`TRAINER_BIRD_KEEPER_GS_JOSE_3`) | `602` (`TRAINER_BIRD_KEEPER_GS_JOSE_4`) | `0` (`TRAINER_NONE`) |
+| 1 | `151` (`TRAINER_PICNICKER_ERIN`) | `151` (`TRAINER_PICNICKER_ERIN`) | `335` (`TRAINER_PICNICKER_ERIN_2`) | `453` (`TRAINER_PICNICKER_ERIN_3`) | `603` (`TRAINER_PICNICKER_ERIN_4`) | `0` (`TRAINER_NONE`) |
+| 2 | `27` (`TRAINER_PICNICKER_LIZ`) | `27` (`TRAINER_PICNICKER_LIZ`) | `276` (`TRAINER_PICNICKER_LIZ_2`) | `277` (`TRAINER_PICNICKER_LIZ_3`) | `518` (`TRAINER_PICNICKER_LIZ_4`) | `0` (`TRAINER_NONE`) |
+| 3 | `397` (`TRAINER_SCHOOL_KID_M_CHAD`) | `397` (`TRAINER_SCHOOL_KID_M_CHAD`) | `434` (`TRAINER_SCHOOL_KID_M_CHAD_2`) | `435` (`TRAINER_SCHOOL_KID_M_CHAD_3`) | `507` (`TRAINER_SCHOOL_KID_M_CHAD_4`) | `0` (`TRAINER_NONE`) |
+| 4 | `211` (`TRAINER_SAILOR_HUEY`) | `211` (`TRAINER_SAILOR_HUEY`) | `440` (`TRAINER_SAILOR_HUEY_2`) | `441` (`TRAINER_SAILOR_HUEY_3`) | `509` (`TRAINER_SAILOR_HUEY_4`) | `0` (`TRAINER_NONE`) |
+| 5 | `4` (`TRAINER_BUG_CATCHER_WADE`) | `4` (`TRAINER_BUG_CATCHER_WADE`) | `461` (`TRAINER_BUG_CATCHER_WADE_3`) | `460` (`TRAINER_BUG_CATCHER_WADE_2`) | `512` (`TRAINER_BUG_CATCHER_WADE_4`) | `0` (`TRAINER_NONE`) |
+| 6 | `8` (`TRAINER_YOUNGSTER_JOEY`) | `8` (`TRAINER_YOUNGSTER_JOEY`) | `279` (`TRAINER_YOUNGSTER_JOEY_2`) | `280` (`TRAINER_YOUNGSTER_JOEY_3`) | `510` (`TRAINER_YOUNGSTER_JOEY_4`) | `0` (`TRAINER_NONE`) |
+| 7 | `178` (`TRAINER_SCHOOL_KID_M_JACK`) | `178` (`TRAINER_SCHOOL_KID_M_JACK`) | `430` (`TRAINER_SCHOOL_KID_M_JACK_2`) | `431` (`TRAINER_SCHOOL_KID_M_JACK_3`) | `503` (`TRAINER_SCHOOL_KID_M_JACK_4`) | `0` (`TRAINER_NONE`) |
+| 8 | `102` (`TRAINER_ACE_TRAINER_M_GAVEN`) | `102` (`TRAINER_ACE_TRAINER_M_GAVEN`) | `456` (`TRAINER_ACE_TRAINER_M_GAVEN_2`) | `457` (`TRAINER_ACE_TRAINER_M_GAVEN_3`) | `604` (`TRAINER_ACE_TRAINER_M_GAVEN_4`) | `0` (`TRAINER_NONE`) |
+| 9 | `17` (`TRAINER_BLACK_BELT_KENJI`) | `17` (`TRAINER_BLACK_BELT_KENJI`) | `250` (`TRAINER_BLACK_BELT_KENJI_2`) | `278` (`TRAINER_BLACK_BELT_KENJI_3`) | `605` (`TRAINER_BLACK_BELT_KENJI_4`) | `0` (`TRAINER_NONE`) |
+| 10 | `145` (`TRAINER_HIKER_PARRY`) | `145` (`TRAINER_HIKER_PARRY`) | `451` (`TRAINER_HIKER_PARRY_2`) | `452` (`TRAINER_HIKER_PARRY_3`) | `606` (`TRAINER_HIKER_PARRY_4`) | `0` (`TRAINER_NONE`) |
+| 11 | `402` (`TRAINER_PICNICKER_TIFFANY`) | `402` (`TRAINER_PICNICKER_TIFFANY`) | `466` (`TRAINER_PICNICKER_TIFFANY_2`) | `467` (`TRAINER_PICNICKER_TIFFANY_3`) | `522` (`TRAINER_PICNICKER_TIFFANY_4`) | `0` (`TRAINER_NONE`) |
+| 12 | `61` (`TRAINER_HIKER_ANTHONY`) | `61` (`TRAINER_HIKER_ANTHONY`) | `100` (`TRAINER_HIKER_ANTHONY_2`) | `155` (`TRAINER_HIKER_ANTHONY_3`) | `523` (`TRAINER_HIKER_ANTHONY_4`) | `0` (`TRAINER_NONE`) |
+| 13 | `114` (`TRAINER_ACE_TRAINER_F_REENA`) | `114` (`TRAINER_ACE_TRAINER_F_REENA`) | `444` (`TRAINER_ACE_TRAINER_F_REENA_2`) | `445` (`TRAINER_ACE_TRAINER_F_REENA_3`) | `607` (`TRAINER_ACE_TRAINER_F_REENA_4`) | `0` (`TRAINER_NONE`) |
+| 14 | `124` (`TRAINER_FISHERMAN_WILTON`) | `124` (`TRAINER_FISHERMAN_WILTON`) | `325` (`TRAINER_FISHERMAN_WILTON_2`) | `450` (`TRAINER_FISHERMAN_WILTON_3`) | `608` (`TRAINER_FISHERMAN_WILTON_4`) | `0` (`TRAINER_NONE`) |
+| 15 | `113` (`TRAINER_ACE_TRAINER_F_JAMIE`) | `113` (`TRAINER_ACE_TRAINER_F_JAMIE`) | `458` (`TRAINER_ACE_TRAINER_F_JAMIE_2`) | `459` (`TRAINER_ACE_TRAINER_F_JAMIE_3`) | `609` (`TRAINER_ACE_TRAINER_F_JAMIE_4`) | `0` (`TRAINER_NONE`) |
+| 16 | `7` (`TRAINER_JUGGLER_IRWIN`) | `7` (`TRAINER_JUGGLER_IRWIN`) | `454` (`TRAINER_JUGGLER_IRWIN_2`) | `455` (`TRAINER_JUGGLER_IRWIN_3`) | `527` (`TRAINER_JUGGLER_IRWIN_4`) | `0` (`TRAINER_NONE`) |
+| 17 | `131` (`TRAINER_POKE_MANIAC_BRENT`) | `131` (`TRAINER_POKE_MANIAC_BRENT`) | `172` (`TRAINER_POKE_MANIAC_BRENT_2`) | `173` (`TRAINER_POKE_MANIAC_BRENT_3`) | `530` (`TRAINER_POKE_MANIAC_BRENT_4`) | `0` (`TRAINER_NONE`) |
+| 18 | `24` (`TRAINER_SCHOOL_KID_M_ALAN`) | `24` (`TRAINER_SCHOOL_KID_M_ALAN`) | `432` (`TRAINER_SCHOOL_KID_M_ALAN_2`) | `433` (`TRAINER_SCHOOL_KID_M_ALAN_3`) | `505` (`TRAINER_SCHOOL_KID_M_ALAN_4`) | `0` (`TRAINER_NONE`) |
+| 19 | `44` (`TRAINER_POKEFAN_M_DEREK`) | `44` (`TRAINER_POKEFAN_M_DEREK`) | `438` (`TRAINER_POKEFAN_M_DEREK_2`) | `439` (`TRAINER_POKEFAN_M_DEREK_3`) | `610` (`TRAINER_POKEFAN_M_DEREK_4`) | `0` (`TRAINER_NONE`) |
+| 20 | `65` (`TRAINER_PICNICKER_GINA`) | `65` (`TRAINER_PICNICKER_GINA`) | `142` (`TRAINER_PICNICKER_GINA_2`) | `334` (`TRAINER_PICNICKER_GINA_3`) | `520` (`TRAINER_PICNICKER_GINA_4`) | `0` (`TRAINER_NONE`) |
+| 21 | `123` (`TRAINER_FISHERMAN_TULLY`) | `123` (`TRAINER_FISHERMAN_TULLY`) | `323` (`TRAINER_FISHERMAN_TULLY_2`) | `324` (`TRAINER_FISHERMAN_TULLY_3`) | `517` (`TRAINER_FISHERMAN_TULLY_4`) | `0` (`TRAINER_NONE`) |
+| 22 | `182` (`TRAINER_POKEFAN_BEVERLY`) | `182` (`TRAINER_POKEFAN_BEVERLY`) | `436` (`TRAINER_POKEFAN_BEVERLY_2`) | `437` (`TRAINER_POKEFAN_BEVERLY_3`) | `611` (`TRAINER_POKEFAN_BEVERLY_4`) | `0` (`TRAINER_NONE`) |
+| 23 | `137` (`TRAINER_BIRD_KEEPER_GS_VANCE`) | `137` (`TRAINER_BIRD_KEEPER_GS_VANCE`) | `447` (`TRAINER_BIRD_KEEPER_GS_VANCE_2`) | `448` (`TRAINER_BIRD_KEEPER_GS_VANCE_3`) | `612` (`TRAINER_BIRD_KEEPER_GS_VANCE_4`) | `0` (`TRAINER_NONE`) |
+| 24 | `57` (`TRAINER_FISHERMAN_RALPH`) | `57` (`TRAINER_FISHERMAN_RALPH`) | `462` (`TRAINER_FISHERMAN_RALPH_2`) | `463` (`TRAINER_FISHERMAN_RALPH_3`) | `515` (`TRAINER_FISHERMAN_RALPH_4`) | `0` (`TRAINER_NONE`) |
+| 25 | `66` (`TRAINER_CAMPER_TODD`) | `66` (`TRAINER_CAMPER_TODD`) | `274` (`TRAINER_CAMPER_TODD_2`) | `275` (`TRAINER_CAMPER_TODD_3`) | `525` (`TRAINER_CAMPER_TODD_4`) | `0` (`TRAINER_NONE`) |
+| 26 | `78` (`TRAINER_BUG_CATCHER_ARNIE`) | `78` (`TRAINER_BUG_CATCHER_ARNIE`) | `360` (`TRAINER_BUG_CATCHER_ARNIE_2`) | `449` (`TRAINER_BUG_CATCHER_ARNIE_3`) | `513` (`TRAINER_BUG_CATCHER_ARNIE_4`) | `0` (`TRAINER_NONE`) |
+| 27 | `400` (`TRAINER_LASS_DANA`) | `400` (`TRAINER_LASS_DANA`) | `464` (`TRAINER_LASS_DANA_2`) | `465` (`TRAINER_LASS_DANA_3`) | `528` (`TRAINER_LASS_DANA_4`) | `0` (`TRAINER_NONE`) |
+| 28 | `184` (`TRAINER_LASS_KRISE`) | `184` (`TRAINER_LASS_KRISE`) | `613` (`TRAINER_LASS_KRISE_2`) | `614` (`TRAINER_LASS_KRISE_3`) | `615` (`TRAINER_LASS_KRISE_4`) | `0` (`TRAINER_NONE`) |
+| 29 | `64` (`TRAINER_YOUNGSTER_IAN`) | `64` (`TRAINER_YOUNGSTER_IAN`) | `616` (`TRAINER_YOUNGSTER_IAN_2`) | `617` (`TRAINER_YOUNGSTER_IAN_3`) | `618` (`TRAINER_YOUNGSTER_IAN_4`) | `0` (`TRAINER_NONE`) |
+| 30 | `388` (`TRAINER_FIREBREATHER_WALT`) | `388` (`TRAINER_FIREBREATHER_WALT`) | `619` (`TRAINER_FIREBREATHER_WALT_2`) | `620` (`TRAINER_FIREBREATHER_WALT_3`) | `621` (`TRAINER_FIREBREATHER_WALT_4`) | `0` (`TRAINER_NONE`) |
+| 31 | `140` (`TRAINER_BUG_CATCHER_DOUG`) | `140` (`TRAINER_BUG_CATCHER_DOUG`) | `622` (`TRAINER_BUG_CATCHER_DOUG_2`) | `623` (`TRAINER_BUG_CATCHER_DOUG_3`) | `624` (`TRAINER_BUG_CATCHER_DOUG_4`) | `0` (`TRAINER_NONE`) |
+| 32 | `48` (`TRAINER_BUG_CATCHER_ROB`) | `48` (`TRAINER_BUG_CATCHER_ROB`) | `625` (`TRAINER_BUG_CATCHER_ROB_2`) | `626` (`TRAINER_BUG_CATCHER_ROB_3`) | `627` (`TRAINER_BUG_CATCHER_ROB_4`) | `0` (`TRAINER_NONE`) |
+| 33 | `313` (`TRAINER_BIKER_REESE`) | `313` (`TRAINER_BIKER_REESE`) | `628` (`TRAINER_BIKER_REESE_2`) | `629` (`TRAINER_BIKER_REESE_3`) | `630` (`TRAINER_BIKER_REESE_4`) | `0` (`TRAINER_NONE`) |
+| 34 | `574` (`TRAINER_BIKER_AIDEN`) | `574` (`TRAINER_BIKER_AIDEN`) | `631` (`TRAINER_BIKER_AIDEN_2`) | `632` (`TRAINER_BIKER_AIDEN_3`) | `633` (`TRAINER_BIKER_AIDEN_4`) | `0` (`TRAINER_NONE`) |
+| 35 | `579` (`TRAINER_BIKER_ERNEST`) | `579` (`TRAINER_BIKER_ERNEST`) | `634` (`TRAINER_BIKER_ERNEST_2`) | `635` (`TRAINER_BIKER_ERNEST_3`) | `636` (`TRAINER_BIKER_ERNEST_4`) | `0` (`TRAINER_NONE`) |
+| 36 | `382` (`TRAINER_TEACHER_HILLARY`) | `382` (`TRAINER_TEACHER_HILLARY`) | `637` (`TRAINER_TEACHER_HILLARY_2`) | `638` (`TRAINER_TEACHER_HILLARY_3`) | `639` (`TRAINER_TEACHER_HILLARY_4`) | `0` (`TRAINER_NONE`) |
+| 37 | `331` (`TRAINER_SCHOOL_KID_M_BILLY`) | `331` (`TRAINER_SCHOOL_KID_M_BILLY`) | `640` (`TRAINER_SCHOOL_KID_M_BILLY_2`) | `641` (`TRAINER_SCHOOL_KID_M_BILLY_3`) | `642` (`TRAINER_SCHOOL_KID_M_BILLY_4`) | `0` (`TRAINER_NONE`) |
+| 38 | `569` (`TRAINER_TWINS_KAY_AND_TIA`) | `569` (`TRAINER_TWINS_KAY_AND_TIA`) | `643` (`TRAINER_TWINS_KAY_AND_TIA_2`) | `644` (`TRAINER_TWINS_KAY_AND_TIA_3`) | `645` (`TRAINER_TWINS_KAY_AND_TIA_4`) | `0` (`TRAINER_NONE`) |
+| 39 | `565` (`TRAINER_BIRD_KEEPER_GS_JOSH`) | `565` (`TRAINER_BIRD_KEEPER_GS_JOSH`) | `646` (`TRAINER_BIRD_KEEPER_GS_JOSH_2`) | `647` (`TRAINER_BIRD_KEEPER_GS_JOSH_3`) | `648` (`TRAINER_BIRD_KEEPER_GS_JOSH_4`) | `0` (`TRAINER_NONE`) |
+| 40 | `567` (`TRAINER_SCHOOL_KID_M_TORIN`) | `567` (`TRAINER_SCHOOL_KID_M_TORIN`) | `649` (`TRAINER_SCHOOL_KID_M_TORIN_2`) | `650` (`TRAINER_SCHOOL_KID_M_TORIN_3`) | `651` (`TRAINER_SCHOOL_KID_M_TORIN_4`) | `0` (`TRAINER_NONE`) |
+| 41 | `559` (`TRAINER_YOUNG_COUPLE_TIM_AND_SUE`) | `559` (`TRAINER_YOUNG_COUPLE_TIM_AND_SUE`) | `652` (`TRAINER_YOUNG_COUPLE_TIM_AND_SUE_2`) | `653` (`TRAINER_YOUNG_COUPLE_TIM_AND_SUE_3`) | `654` (`TRAINER_YOUNG_COUPLE_TIM_AND_SUE_4`) | `0` (`TRAINER_NONE`) |
+| 42 | `358` (`TRAINER_HIKER_KENNY`) | `358` (`TRAINER_HIKER_KENNY`) | `655` (`TRAINER_HIKER_KENNY_2`) | `656` (`TRAINER_HIKER_KENNY_3`) | `657` (`TRAINER_HIKER_KENNY_4`) | `0` (`TRAINER_NONE`) |
+| 43 | `561` (`TRAINER_CAMPER_TANNER`) | `561` (`TRAINER_CAMPER_TANNER`) | `658` (`TRAINER_CAMPER_TANNER_2`) | `659` (`TRAINER_CAMPER_TANNER_3`) | `660` (`TRAINER_CAMPER_TANNER_4`) | `0` (`TRAINER_NONE`) |
+| 44 | `59` (`TRAINER_FISHERMAN_KYLE`) | `59` (`TRAINER_FISHERMAN_KYLE`) | `661` (`TRAINER_FISHERMAN_KYLE_2`) | `662` (`TRAINER_FISHERMAN_KYLE_3`) | `663` (`TRAINER_FISHERMAN_KYLE_4`) | `0` (`TRAINER_NONE`) |
+| 45 | `558` (`TRAINER_FISHERMAN_KYLER`) | `558` (`TRAINER_FISHERMAN_KYLER`) | `664` (`TRAINER_FISHERMAN_KYLER_2`) | `665` (`TRAINER_FISHERMAN_KYLER_3`) | `666` (`TRAINER_FISHERMAN_KYLER_4`) | `0` (`TRAINER_NONE`) |
+| 46 | `401` (`TRAINER_GENTLEMAN_ALFRED`) | `401` (`TRAINER_GENTLEMAN_ALFRED`) | `672` (`TRAINER_GENTLEMAN_ALFRED_2`) | `673` (`TRAINER_GENTLEMAN_ALFRED_3`) | `674` (`TRAINER_GENTLEMAN_ALFRED_4`) | `0` (`TRAINER_NONE`) |
+| 47 | `20` (`TRAINER_LEADER_FALKNER_FALKNER`) | `20` (`TRAINER_LEADER_FALKNER_FALKNER`) | `712` (`TRAINER_LEADER_FALKNER_FALKNER_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
+| 48 | `21` (`TRAINER_LEADER_BUGSY_BUGSY`) | `21` (`TRAINER_LEADER_BUGSY_BUGSY`) | `713` (`TRAINER_LEADER_BUGSY_BUGSY_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
+| 49 | `30` (`TRAINER_LEADER_WHITNEY`) | `30` (`TRAINER_LEADER_WHITNEY`) | `714` (`TRAINER_LEADER_WHITNEY_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
+| 50 | `31` (`TRAINER_LEADER_MORTY_MORTY`) | `31` (`TRAINER_LEADER_MORTY_MORTY`) | `715` (`TRAINER_LEADER_MORTY_MORTY_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
+| 51 | `33` (`TRAINER_LEADER_JASMINE_JASMINE`) | `33` (`TRAINER_LEADER_JASMINE_JASMINE`) | `717` (`TRAINER_LEADER_JASMINE_JASMINE_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
+| 52 | `34` (`TRAINER_LEADER_CHUCK_CHUCK`) | `34` (`TRAINER_LEADER_CHUCK_CHUCK`) | `718` (`TRAINER_LEADER_CHUCK_CHUCK_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
+| 53 | `32` (`TRAINER_LEADER_PRYCE_PRYCE`) | `32` (`TRAINER_LEADER_PRYCE_PRYCE`) | `716` (`TRAINER_LEADER_PRYCE_PRYCE_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
+| 54 | `35` (`TRAINER_LEADER_CLAIR_CLAIR`) | `35` (`TRAINER_LEADER_CLAIR_CLAIR`) | `719` (`TRAINER_LEADER_CLAIR_CLAIR_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
+| 55 | `253` (`TRAINER_LEADER_BROCK_BROCK`) | `253` (`TRAINER_LEADER_BROCK_BROCK`) | `720` (`TRAINER_LEADER_BROCK_BROCK_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
+| 56 | `254` (`TRAINER_LEADER_MISTY_MISTY`) | `254` (`TRAINER_LEADER_MISTY_MISTY`) | `721` (`TRAINER_LEADER_MISTY_MISTY_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
+| 57 | `255` (`TRAINER_LEADER_LT_SURGE_LT__SURGE`) | `255` (`TRAINER_LEADER_LT_SURGE_LT__SURGE`) | `722` (`TRAINER_LEADER_LT_SURGE_LT__SURGE_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
+| 58 | `256` (`TRAINER_LEADER_ERIKA_ERIKA`) | `256` (`TRAINER_LEADER_ERIKA_ERIKA`) | `723` (`TRAINER_LEADER_ERIKA_ERIKA_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
+| 59 | `257` (`TRAINER_LEADER_JANINE_JANINE`) | `257` (`TRAINER_LEADER_JANINE_JANINE`) | `724` (`TRAINER_LEADER_JANINE_JANINE_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
+| 60 | `258` (`TRAINER_LEADER_SABRINA_SABRINA`) | `258` (`TRAINER_LEADER_SABRINA_SABRINA`) | `725` (`TRAINER_LEADER_SABRINA_SABRINA_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
+| 61 | `259` (`TRAINER_LEADER_BLAINE_BLAINE`) | `259` (`TRAINER_LEADER_BLAINE_BLAINE`) | `726` (`TRAINER_LEADER_BLAINE_BLAINE_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
+| 62 | `261` (`TRAINER_LEADER_BLUE_BLUE`) | `261` (`TRAINER_LEADER_BLUE_BLUE`) | `727` (`TRAINER_LEADER_BLUE_BLUE_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
 
 </details>
 
 ### Schedule and story gates
 
-The weekday/time fields are real rematch requirements, but they are not sufficient by themselves.
+The weekday/time fields are requirements only for a phone-script condition that reads them; they are not universal rematch requirements.
 
 For ordinary generic contacts, the header that creates the scheduled rematch offer is `PHONECALLGENERIC_POSTROCKETWEEKTIME`. It requires all of the following:
 
@@ -686,21 +650,9 @@ For ordinary generic contacts, the header that creates the scheduled rematch off
 3. The current morning/day/night value equals `rematchTimeOfDay`.
 4. The header's chance roll succeeds.
 
-The generic `FIGHTPOSTROCKETS` condition also prevents a generic rematch script from being selected before the Radio Tower flag is set. Other headers prevent another offer while `PhoneRematch.seeking` is already set, prevent calls while a dynamic gift is waiting, and exclude National Park during the Bug-Catching Contest. These are separate header conditions, so changing only the two schedule bytes does not remove the story and persistent-state gates.
+The generic `FIGHTPOSTROCKETS` condition also prevents a generic rematch script from being selected before the Radio Tower flag is set. Unlike `POSTROCKETWEEKTIME`, it does not read the phonebook record's weekday or time bytes, so an offer using this condition is not schedule-gated. Other headers prevent another offer while `PhoneRematch.seeking` is already set, prevent calls while a dynamic gift is waiting, and exclude National Park during the Bug-Catching Contest. These are separate header conditions, so changing only the two schedule bytes does not remove the story and persistent-state gates.
 
 Gym Leaders use the same two schedule bytes in their dedicated handler, but their requirements are different: the player must have all 16 badges, no rematch may already be pending for that leader, the schedule must match, and the Fighting Dojo must have capacity before the leader sets `seeking`.
-
-### Example: prove the Radio Tower dependency
-
-Use an ordinary trainer whose header contains a scheduled rematch offer. Set the game clock to that trainer's displayed day/time and attempt calls before clearing the Radio Tower takeover; then repeat after clearing it.
-
-**Test:** the matching day/time alone must not produce the scheduled rematch offer before `FLAG_BEAT_RADIO_TOWER_ROCKETS`. After the flag is set, the same day/time becomes eligible, subject to the header chance roll. This separates the schedule bytes from the story gate.
-
-### Example: verify an ordinary trainer rematch
-
-Use an existing rematch contact rather than creating one from scratch. Receive their rematch offer, save, defeat them, and speak to them again.
-
-**Test:** the battle uses the next eligible trainer ID from that contact's overlay 26 row. If the original battle appears instead, check the pending `seeking` state and rematch-group unlock flags before changing the table.
 
 ### Gym Leader rematches
 
@@ -722,12 +674,6 @@ There are two item systems that are easy to confuse:
 The first path is not a generic “static item” given merely because a contact exists. In vanilla it is the reward path after a trainer's rematch battle. The nonzero rows are Joey (HP Up), Kenji (PP Up), Huey (Protein), Vance (Carbos), Parry (Iron), Erin (Calcium), and Ian (random berry via the Cheri sentinel).
 
 The second path is the phone-only item offer system. Because the NPC field script checks for an available rematch before calling `GetPhoneContactGiftItem`, a queued dynamic gift is collected when no rematch battle is currently selected. This is the path relevant to item-only phone outcomes.
-
-### Example: test a dynamic phone gift
-
-Use an existing contact that can produce an `ITEM` phone-script result. Trigger the call, collect the item through the original NPC interaction, and speak to the NPC again.
-
-**Test:** the first interaction awards the item and clears the queued gift. The second interaction must not award it again. If it duplicates, the retrieval script is not consuming the persistent gift state correctly.
 
 ---
 
