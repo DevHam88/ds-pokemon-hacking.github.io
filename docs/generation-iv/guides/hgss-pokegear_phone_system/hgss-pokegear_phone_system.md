@@ -18,7 +18,9 @@ The system is spread across several files. The most important distinction is tha
 
 ## Overview
 
-Every Pokegear phone number has a **contact ID**. That one-byte ID connects several systems:
+HGSS's Pokegear phone system is a set of connected but separate systems. `pmtel_book.dat` is a fixed contact list that defines each contact''s ID, handler type, trainer battle ID, home map, schedule, sorting data, and call settings; save data records which contacts the player has registered plus pending rematches, gifts, and queued calls. When the player calls a number, or when the game decides to ring, the Pokegear code chooses a contact-specific handler: ordinary trainers use compact Overlay 101 header and definition tables to select a message and possibly queue a rematch or gift, while Mom, Elm, Oak, Gym Leaders, Baoba, and other special contacts use dedicated logic. The text itself comes from that contact''s message archive, whose message `0` supplies the contact name. Incoming calls share a timed overworld check: it handles queued system events first, then may choose an eligible registered caller at random; map-header permissions can block calls. Ordinary trainer rematches use the contact''s trainer ID to look up a fixed six-entry battle-ID row in Overlay 26, while field scripts can register contacts or immediately configure and start story calls such as Elm''s stolen-Pokemon call.
+
+The following tables summarise the main data and call paths:
 
 | Type | System | Location | What it stores |
 |---|---|---|---|
