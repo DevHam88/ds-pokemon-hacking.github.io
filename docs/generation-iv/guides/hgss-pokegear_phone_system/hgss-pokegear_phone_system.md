@@ -63,7 +63,7 @@ The first four bytes are a little-endian entry count (75). They are followed by 
 | `08` | 2 | `gift` | Static item used by the trainer-gift field-script path. |
 | `0A` | 2 | `phoneScriptIfLocal` | Generic contact's outgoing phone script when the player is on this contact's `mapId`. |
 | `0C` | 1 | `unkC` | Greeting-set index. Values `0`-`7` select a row from the shared phone-greeting table; `FF` suppresses the greeting. |
-| `0D` | 1 | `rematchWeekday` | Weekday used by the ordinary phone-trainer schedule and Gym Leader schedule. It is also gated by story/state checks; see [Schedule and story gates](#schedule-and-story-gates). |
+| `0D` | 1 | `rematchWeekday` | Weekday used by the ordinary phone-trainer schedule and Gym Leader schedule. Other rematch availability conditions also apply; see [Rematch availability conditions](#rematch-availability-conditions). |
 | `0E` | 1 | `rematchTimeOfDay` | Morning `0`, day `1`, or night `2`, used with the weekday by those schedule checks. |
 | `0F` | 1 | `unkF` | Random incoming-call "probability bucket". The game chooses bucket `0` (50% of the time), bucket `1` (30% of the time), and bucket `2` (20% of the time). |
 | `10` | 1 | `sortParam[0]` | Stored Pokegear title-sort rank. |
@@ -529,138 +529,181 @@ The compiled function entries for the generic selector and definition interprete
 
 ### Ordinary phone-trainer rematches
 
-Ordinary trainer rematches use both phone state and a fixed trainer-ID table in the **US vanilla Overlay 26**. In an extracted Overlay 26 file (commonly named `overlay_0026.bin`), the table starts at **file offset `0x20C`**. It has 63 rows of 12 bytes, for a total of `0x2F4` bytes; its occupied range is `0x20C` through `0x4FF` inclusive.
+Ordinary trainer rematches use both phone state and a fixed trainer-ID table in the **US vanilla Overlay 26** at **file offset `0x20C`**. It has 63 rows of 12 bytes (`0x20C` through `0x4FF` inclusive). Each record is six little-endian `u16` trainer battle IDs. The six entries relate to the original trainer ID (used to lookup from the `pmtel_book.dat` phonebook data) and five possible rematch teams, each unlocked with the setting of an individual flag.
 
-| Item | Binary value |
-|---|---|
-| Row count | `63` (`0x3F`) |
-| Row size | `12` bytes (`0x0C`) |
-| Entry type | Six little-endian `u16` trainer battle IDs |
-| Row `r` offset | `0x20C + (r * 0x0C)` |
-| Entry `e` within row | `rowOffset + (e * 2)` |
+| Entry | Relative offset | Tier unlock flag | Meaning |
+|:---:|:---:|---|---|
+| `0` | `00` | None | Original/base battle ID. It identifies the row and is the selector’s final fallback. |
+| `1` | `02` | `0x97C` | Duplicate base battle ID. Vanilla never sets this flag. It is a redundant positive-index fallback: selecting it produces the same battle as entry `0`. |
+| `2` | `04` | `0x97D` | First distinct rematch team. Set by the Radio Tower story sequence. |
+| `3` | `06` | `0x97E` | Second distinct rematch team. Set by the Hall of Fame sequence. |
+| `4` | `08` | `0x97F` | Third distinct rematch team. Set when the player receives the Earth Badge at Viridian Gym. |
+| `5` | `0A` | `0x980` | `TRAINER_NONE` (`0x0000`) in every vanilla ordinary-trainer row. It is a terminator in vanilla, but can hold a fourth distinct rematch team in a hack. |
 
-The six entries are:
+An **entry** is a physical slot in a table row. A **rematch tier** is an entry used as a progressively unlocked battle team: entries `1` through `5` can serve as tiers, while entry `0` is the base battle and fallback. The decomp calls the corresponding flag check a “rematch group”; there is no separate tier data structure.
 
-| Entry | Relative offset | Meaning |
-|:---:|:---:|---|
-| `0` | `00` | Original/base battle ID. Normally not selected, but it can be returned as a fallback; keep it valid. |
-| `1` | `02` | Duplicate base battle ID: first selectable entry before rematch groups are unlocked. |
-| `2` | `04` | Rematch battle 1. |
-| `3` | `06` | Rematch battle 2. |
-| `4` | `08` | Rematch battle 3. |
-| `5` | `0A` | Rematch battle 4, or `TRAINER_NONE` (`0x0000`). |
-
-The normal flow is:
-
-1. A phone script sets `PhoneRematch.seeking` for the contact.
-2. The trainer battle lookup checks that bit and uses the contact's `trainerId` to find its row.
-3. It tests entries from index `1` through `5`, selecting the first unbeaten entry whose rematch-group requirements are unlocked.
-
-The initial scan begins at index `1`, so index `1` is normally the first rematch battle. However, index `0` is a real return value, not an unreachable dummy: it is returned when the scan encounters `0` at index `1`, and it can also be the fallback when a later rematch group is not unlocked.  
-
-:::caution
-`0xFFFF` is skipped only while the rematch code searches for an unbeaten candidate or walks backwards for an unlocked fallback. It is not skipped when the scan sees a `0` terminator and returns the preceding index, and the resulting trainer ID is not validated. A malformed custom layout can therefore return literal trainer ID `0xFFFF`; do not use `0xFFFF` as a repeat marker or immediately before a `0` terminator.
-:::
-
-:::warning
-`0x20C` is a **US Overlay 26 file offset**, not an ARM9 address and not an offset in `pmtel_book.dat`. It must be independently located for another game revision before editing. Do not insert or delete bytes: the game indexes fixed 12-byte rows.
-:::
-
-### Vanilla US Overlay 26 table
-
-The following binary-table export is from local community research supplied by **Eclipse (Luna)**, cross-checked against the HeartGold trainer-ID constants. Each cell gives the trainer battle ID followed by its decomp label. Write the ID as a little-endian `u16` in the ROM: for example, ID `151` is `0x0097`, or bytes `97 00`.
+Rows `0`–`46` are ordinary trainers; rows `47`–`62` are Gym Leaders.
 
 <details>
-<summary>Show all 63 rows</summary>
+<summary>Vanilla Overlay 26 table</summary>
 
-| Row | Entry 0: base | Entry 1: duplicate base | Entry 2 | Entry 3 | Entry 4 | Entry 5 |
-|:---:|---|---|---|---|---|---|
-| 0 | `414` (`TRAINER_BIRD_KEEPER_GS_JOSE_2`) | `414` (`TRAINER_BIRD_KEEPER_GS_JOSE_2`) | `303` (`TRAINER_BIRD_KEEPER_GS_JOSE`) | `446` (`TRAINER_BIRD_KEEPER_GS_JOSE_3`) | `602` (`TRAINER_BIRD_KEEPER_GS_JOSE_4`) | `0` (`TRAINER_NONE`) |
-| 1 | `151` (`TRAINER_PICNICKER_ERIN`) | `151` (`TRAINER_PICNICKER_ERIN`) | `335` (`TRAINER_PICNICKER_ERIN_2`) | `453` (`TRAINER_PICNICKER_ERIN_3`) | `603` (`TRAINER_PICNICKER_ERIN_4`) | `0` (`TRAINER_NONE`) |
-| 2 | `27` (`TRAINER_PICNICKER_LIZ`) | `27` (`TRAINER_PICNICKER_LIZ`) | `276` (`TRAINER_PICNICKER_LIZ_2`) | `277` (`TRAINER_PICNICKER_LIZ_3`) | `518` (`TRAINER_PICNICKER_LIZ_4`) | `0` (`TRAINER_NONE`) |
-| 3 | `397` (`TRAINER_SCHOOL_KID_M_CHAD`) | `397` (`TRAINER_SCHOOL_KID_M_CHAD`) | `434` (`TRAINER_SCHOOL_KID_M_CHAD_2`) | `435` (`TRAINER_SCHOOL_KID_M_CHAD_3`) | `507` (`TRAINER_SCHOOL_KID_M_CHAD_4`) | `0` (`TRAINER_NONE`) |
-| 4 | `211` (`TRAINER_SAILOR_HUEY`) | `211` (`TRAINER_SAILOR_HUEY`) | `440` (`TRAINER_SAILOR_HUEY_2`) | `441` (`TRAINER_SAILOR_HUEY_3`) | `509` (`TRAINER_SAILOR_HUEY_4`) | `0` (`TRAINER_NONE`) |
-| 5 | `4` (`TRAINER_BUG_CATCHER_WADE`) | `4` (`TRAINER_BUG_CATCHER_WADE`) | `461` (`TRAINER_BUG_CATCHER_WADE_3`) | `460` (`TRAINER_BUG_CATCHER_WADE_2`) | `512` (`TRAINER_BUG_CATCHER_WADE_4`) | `0` (`TRAINER_NONE`) |
-| 6 | `8` (`TRAINER_YOUNGSTER_JOEY`) | `8` (`TRAINER_YOUNGSTER_JOEY`) | `279` (`TRAINER_YOUNGSTER_JOEY_2`) | `280` (`TRAINER_YOUNGSTER_JOEY_3`) | `510` (`TRAINER_YOUNGSTER_JOEY_4`) | `0` (`TRAINER_NONE`) |
-| 7 | `178` (`TRAINER_SCHOOL_KID_M_JACK`) | `178` (`TRAINER_SCHOOL_KID_M_JACK`) | `430` (`TRAINER_SCHOOL_KID_M_JACK_2`) | `431` (`TRAINER_SCHOOL_KID_M_JACK_3`) | `503` (`TRAINER_SCHOOL_KID_M_JACK_4`) | `0` (`TRAINER_NONE`) |
-| 8 | `102` (`TRAINER_ACE_TRAINER_M_GAVEN`) | `102` (`TRAINER_ACE_TRAINER_M_GAVEN`) | `456` (`TRAINER_ACE_TRAINER_M_GAVEN_2`) | `457` (`TRAINER_ACE_TRAINER_M_GAVEN_3`) | `604` (`TRAINER_ACE_TRAINER_M_GAVEN_4`) | `0` (`TRAINER_NONE`) |
-| 9 | `17` (`TRAINER_BLACK_BELT_KENJI`) | `17` (`TRAINER_BLACK_BELT_KENJI`) | `250` (`TRAINER_BLACK_BELT_KENJI_2`) | `278` (`TRAINER_BLACK_BELT_KENJI_3`) | `605` (`TRAINER_BLACK_BELT_KENJI_4`) | `0` (`TRAINER_NONE`) |
-| 10 | `145` (`TRAINER_HIKER_PARRY`) | `145` (`TRAINER_HIKER_PARRY`) | `451` (`TRAINER_HIKER_PARRY_2`) | `452` (`TRAINER_HIKER_PARRY_3`) | `606` (`TRAINER_HIKER_PARRY_4`) | `0` (`TRAINER_NONE`) |
-| 11 | `402` (`TRAINER_PICNICKER_TIFFANY`) | `402` (`TRAINER_PICNICKER_TIFFANY`) | `466` (`TRAINER_PICNICKER_TIFFANY_2`) | `467` (`TRAINER_PICNICKER_TIFFANY_3`) | `522` (`TRAINER_PICNICKER_TIFFANY_4`) | `0` (`TRAINER_NONE`) |
-| 12 | `61` (`TRAINER_HIKER_ANTHONY`) | `61` (`TRAINER_HIKER_ANTHONY`) | `100` (`TRAINER_HIKER_ANTHONY_2`) | `155` (`TRAINER_HIKER_ANTHONY_3`) | `523` (`TRAINER_HIKER_ANTHONY_4`) | `0` (`TRAINER_NONE`) |
-| 13 | `114` (`TRAINER_ACE_TRAINER_F_REENA`) | `114` (`TRAINER_ACE_TRAINER_F_REENA`) | `444` (`TRAINER_ACE_TRAINER_F_REENA_2`) | `445` (`TRAINER_ACE_TRAINER_F_REENA_3`) | `607` (`TRAINER_ACE_TRAINER_F_REENA_4`) | `0` (`TRAINER_NONE`) |
-| 14 | `124` (`TRAINER_FISHERMAN_WILTON`) | `124` (`TRAINER_FISHERMAN_WILTON`) | `325` (`TRAINER_FISHERMAN_WILTON_2`) | `450` (`TRAINER_FISHERMAN_WILTON_3`) | `608` (`TRAINER_FISHERMAN_WILTON_4`) | `0` (`TRAINER_NONE`) |
-| 15 | `113` (`TRAINER_ACE_TRAINER_F_JAMIE`) | `113` (`TRAINER_ACE_TRAINER_F_JAMIE`) | `458` (`TRAINER_ACE_TRAINER_F_JAMIE_2`) | `459` (`TRAINER_ACE_TRAINER_F_JAMIE_3`) | `609` (`TRAINER_ACE_TRAINER_F_JAMIE_4`) | `0` (`TRAINER_NONE`) |
-| 16 | `7` (`TRAINER_JUGGLER_IRWIN`) | `7` (`TRAINER_JUGGLER_IRWIN`) | `454` (`TRAINER_JUGGLER_IRWIN_2`) | `455` (`TRAINER_JUGGLER_IRWIN_3`) | `527` (`TRAINER_JUGGLER_IRWIN_4`) | `0` (`TRAINER_NONE`) |
-| 17 | `131` (`TRAINER_POKE_MANIAC_BRENT`) | `131` (`TRAINER_POKE_MANIAC_BRENT`) | `172` (`TRAINER_POKE_MANIAC_BRENT_2`) | `173` (`TRAINER_POKE_MANIAC_BRENT_3`) | `530` (`TRAINER_POKE_MANIAC_BRENT_4`) | `0` (`TRAINER_NONE`) |
-| 18 | `24` (`TRAINER_SCHOOL_KID_M_ALAN`) | `24` (`TRAINER_SCHOOL_KID_M_ALAN`) | `432` (`TRAINER_SCHOOL_KID_M_ALAN_2`) | `433` (`TRAINER_SCHOOL_KID_M_ALAN_3`) | `505` (`TRAINER_SCHOOL_KID_M_ALAN_4`) | `0` (`TRAINER_NONE`) |
-| 19 | `44` (`TRAINER_POKEFAN_M_DEREK`) | `44` (`TRAINER_POKEFAN_M_DEREK`) | `438` (`TRAINER_POKEFAN_M_DEREK_2`) | `439` (`TRAINER_POKEFAN_M_DEREK_3`) | `610` (`TRAINER_POKEFAN_M_DEREK_4`) | `0` (`TRAINER_NONE`) |
-| 20 | `65` (`TRAINER_PICNICKER_GINA`) | `65` (`TRAINER_PICNICKER_GINA`) | `142` (`TRAINER_PICNICKER_GINA_2`) | `334` (`TRAINER_PICNICKER_GINA_3`) | `520` (`TRAINER_PICNICKER_GINA_4`) | `0` (`TRAINER_NONE`) |
-| 21 | `123` (`TRAINER_FISHERMAN_TULLY`) | `123` (`TRAINER_FISHERMAN_TULLY`) | `323` (`TRAINER_FISHERMAN_TULLY_2`) | `324` (`TRAINER_FISHERMAN_TULLY_3`) | `517` (`TRAINER_FISHERMAN_TULLY_4`) | `0` (`TRAINER_NONE`) |
-| 22 | `182` (`TRAINER_POKEFAN_BEVERLY`) | `182` (`TRAINER_POKEFAN_BEVERLY`) | `436` (`TRAINER_POKEFAN_BEVERLY_2`) | `437` (`TRAINER_POKEFAN_BEVERLY_3`) | `611` (`TRAINER_POKEFAN_BEVERLY_4`) | `0` (`TRAINER_NONE`) |
-| 23 | `137` (`TRAINER_BIRD_KEEPER_GS_VANCE`) | `137` (`TRAINER_BIRD_KEEPER_GS_VANCE`) | `447` (`TRAINER_BIRD_KEEPER_GS_VANCE_2`) | `448` (`TRAINER_BIRD_KEEPER_GS_VANCE_3`) | `612` (`TRAINER_BIRD_KEEPER_GS_VANCE_4`) | `0` (`TRAINER_NONE`) |
-| 24 | `57` (`TRAINER_FISHERMAN_RALPH`) | `57` (`TRAINER_FISHERMAN_RALPH`) | `462` (`TRAINER_FISHERMAN_RALPH_2`) | `463` (`TRAINER_FISHERMAN_RALPH_3`) | `515` (`TRAINER_FISHERMAN_RALPH_4`) | `0` (`TRAINER_NONE`) |
-| 25 | `66` (`TRAINER_CAMPER_TODD`) | `66` (`TRAINER_CAMPER_TODD`) | `274` (`TRAINER_CAMPER_TODD_2`) | `275` (`TRAINER_CAMPER_TODD_3`) | `525` (`TRAINER_CAMPER_TODD_4`) | `0` (`TRAINER_NONE`) |
-| 26 | `78` (`TRAINER_BUG_CATCHER_ARNIE`) | `78` (`TRAINER_BUG_CATCHER_ARNIE`) | `360` (`TRAINER_BUG_CATCHER_ARNIE_2`) | `449` (`TRAINER_BUG_CATCHER_ARNIE_3`) | `513` (`TRAINER_BUG_CATCHER_ARNIE_4`) | `0` (`TRAINER_NONE`) |
-| 27 | `400` (`TRAINER_LASS_DANA`) | `400` (`TRAINER_LASS_DANA`) | `464` (`TRAINER_LASS_DANA_2`) | `465` (`TRAINER_LASS_DANA_3`) | `528` (`TRAINER_LASS_DANA_4`) | `0` (`TRAINER_NONE`) |
-| 28 | `184` (`TRAINER_LASS_KRISE`) | `184` (`TRAINER_LASS_KRISE`) | `613` (`TRAINER_LASS_KRISE_2`) | `614` (`TRAINER_LASS_KRISE_3`) | `615` (`TRAINER_LASS_KRISE_4`) | `0` (`TRAINER_NONE`) |
-| 29 | `64` (`TRAINER_YOUNGSTER_IAN`) | `64` (`TRAINER_YOUNGSTER_IAN`) | `616` (`TRAINER_YOUNGSTER_IAN_2`) | `617` (`TRAINER_YOUNGSTER_IAN_3`) | `618` (`TRAINER_YOUNGSTER_IAN_4`) | `0` (`TRAINER_NONE`) |
-| 30 | `388` (`TRAINER_FIREBREATHER_WALT`) | `388` (`TRAINER_FIREBREATHER_WALT`) | `619` (`TRAINER_FIREBREATHER_WALT_2`) | `620` (`TRAINER_FIREBREATHER_WALT_3`) | `621` (`TRAINER_FIREBREATHER_WALT_4`) | `0` (`TRAINER_NONE`) |
-| 31 | `140` (`TRAINER_BUG_CATCHER_DOUG`) | `140` (`TRAINER_BUG_CATCHER_DOUG`) | `622` (`TRAINER_BUG_CATCHER_DOUG_2`) | `623` (`TRAINER_BUG_CATCHER_DOUG_3`) | `624` (`TRAINER_BUG_CATCHER_DOUG_4`) | `0` (`TRAINER_NONE`) |
-| 32 | `48` (`TRAINER_BUG_CATCHER_ROB`) | `48` (`TRAINER_BUG_CATCHER_ROB`) | `625` (`TRAINER_BUG_CATCHER_ROB_2`) | `626` (`TRAINER_BUG_CATCHER_ROB_3`) | `627` (`TRAINER_BUG_CATCHER_ROB_4`) | `0` (`TRAINER_NONE`) |
-| 33 | `313` (`TRAINER_BIKER_REESE`) | `313` (`TRAINER_BIKER_REESE`) | `628` (`TRAINER_BIKER_REESE_2`) | `629` (`TRAINER_BIKER_REESE_3`) | `630` (`TRAINER_BIKER_REESE_4`) | `0` (`TRAINER_NONE`) |
-| 34 | `574` (`TRAINER_BIKER_AIDEN`) | `574` (`TRAINER_BIKER_AIDEN`) | `631` (`TRAINER_BIKER_AIDEN_2`) | `632` (`TRAINER_BIKER_AIDEN_3`) | `633` (`TRAINER_BIKER_AIDEN_4`) | `0` (`TRAINER_NONE`) |
-| 35 | `579` (`TRAINER_BIKER_ERNEST`) | `579` (`TRAINER_BIKER_ERNEST`) | `634` (`TRAINER_BIKER_ERNEST_2`) | `635` (`TRAINER_BIKER_ERNEST_3`) | `636` (`TRAINER_BIKER_ERNEST_4`) | `0` (`TRAINER_NONE`) |
-| 36 | `382` (`TRAINER_TEACHER_HILLARY`) | `382` (`TRAINER_TEACHER_HILLARY`) | `637` (`TRAINER_TEACHER_HILLARY_2`) | `638` (`TRAINER_TEACHER_HILLARY_3`) | `639` (`TRAINER_TEACHER_HILLARY_4`) | `0` (`TRAINER_NONE`) |
-| 37 | `331` (`TRAINER_SCHOOL_KID_M_BILLY`) | `331` (`TRAINER_SCHOOL_KID_M_BILLY`) | `640` (`TRAINER_SCHOOL_KID_M_BILLY_2`) | `641` (`TRAINER_SCHOOL_KID_M_BILLY_3`) | `642` (`TRAINER_SCHOOL_KID_M_BILLY_4`) | `0` (`TRAINER_NONE`) |
-| 38 | `569` (`TRAINER_TWINS_KAY_AND_TIA`) | `569` (`TRAINER_TWINS_KAY_AND_TIA`) | `643` (`TRAINER_TWINS_KAY_AND_TIA_2`) | `644` (`TRAINER_TWINS_KAY_AND_TIA_3`) | `645` (`TRAINER_TWINS_KAY_AND_TIA_4`) | `0` (`TRAINER_NONE`) |
-| 39 | `565` (`TRAINER_BIRD_KEEPER_GS_JOSH`) | `565` (`TRAINER_BIRD_KEEPER_GS_JOSH`) | `646` (`TRAINER_BIRD_KEEPER_GS_JOSH_2`) | `647` (`TRAINER_BIRD_KEEPER_GS_JOSH_3`) | `648` (`TRAINER_BIRD_KEEPER_GS_JOSH_4`) | `0` (`TRAINER_NONE`) |
-| 40 | `567` (`TRAINER_SCHOOL_KID_M_TORIN`) | `567` (`TRAINER_SCHOOL_KID_M_TORIN`) | `649` (`TRAINER_SCHOOL_KID_M_TORIN_2`) | `650` (`TRAINER_SCHOOL_KID_M_TORIN_3`) | `651` (`TRAINER_SCHOOL_KID_M_TORIN_4`) | `0` (`TRAINER_NONE`) |
-| 41 | `559` (`TRAINER_YOUNG_COUPLE_TIM_AND_SUE`) | `559` (`TRAINER_YOUNG_COUPLE_TIM_AND_SUE`) | `652` (`TRAINER_YOUNG_COUPLE_TIM_AND_SUE_2`) | `653` (`TRAINER_YOUNG_COUPLE_TIM_AND_SUE_3`) | `654` (`TRAINER_YOUNG_COUPLE_TIM_AND_SUE_4`) | `0` (`TRAINER_NONE`) |
-| 42 | `358` (`TRAINER_HIKER_KENNY`) | `358` (`TRAINER_HIKER_KENNY`) | `655` (`TRAINER_HIKER_KENNY_2`) | `656` (`TRAINER_HIKER_KENNY_3`) | `657` (`TRAINER_HIKER_KENNY_4`) | `0` (`TRAINER_NONE`) |
-| 43 | `561` (`TRAINER_CAMPER_TANNER`) | `561` (`TRAINER_CAMPER_TANNER`) | `658` (`TRAINER_CAMPER_TANNER_2`) | `659` (`TRAINER_CAMPER_TANNER_3`) | `660` (`TRAINER_CAMPER_TANNER_4`) | `0` (`TRAINER_NONE`) |
-| 44 | `59` (`TRAINER_FISHERMAN_KYLE`) | `59` (`TRAINER_FISHERMAN_KYLE`) | `661` (`TRAINER_FISHERMAN_KYLE_2`) | `662` (`TRAINER_FISHERMAN_KYLE_3`) | `663` (`TRAINER_FISHERMAN_KYLE_4`) | `0` (`TRAINER_NONE`) |
-| 45 | `558` (`TRAINER_FISHERMAN_KYLER`) | `558` (`TRAINER_FISHERMAN_KYLER`) | `664` (`TRAINER_FISHERMAN_KYLER_2`) | `665` (`TRAINER_FISHERMAN_KYLER_3`) | `666` (`TRAINER_FISHERMAN_KYLER_4`) | `0` (`TRAINER_NONE`) |
-| 46 | `401` (`TRAINER_GENTLEMAN_ALFRED`) | `401` (`TRAINER_GENTLEMAN_ALFRED`) | `672` (`TRAINER_GENTLEMAN_ALFRED_2`) | `673` (`TRAINER_GENTLEMAN_ALFRED_3`) | `674` (`TRAINER_GENTLEMAN_ALFRED_4`) | `0` (`TRAINER_NONE`) |
-| 47 | `20` (`TRAINER_LEADER_FALKNER_FALKNER`) | `20` (`TRAINER_LEADER_FALKNER_FALKNER`) | `712` (`TRAINER_LEADER_FALKNER_FALKNER_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
-| 48 | `21` (`TRAINER_LEADER_BUGSY_BUGSY`) | `21` (`TRAINER_LEADER_BUGSY_BUGSY`) | `713` (`TRAINER_LEADER_BUGSY_BUGSY_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
-| 49 | `30` (`TRAINER_LEADER_WHITNEY`) | `30` (`TRAINER_LEADER_WHITNEY`) | `714` (`TRAINER_LEADER_WHITNEY_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
-| 50 | `31` (`TRAINER_LEADER_MORTY_MORTY`) | `31` (`TRAINER_LEADER_MORTY_MORTY`) | `715` (`TRAINER_LEADER_MORTY_MORTY_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
-| 51 | `33` (`TRAINER_LEADER_JASMINE_JASMINE`) | `33` (`TRAINER_LEADER_JASMINE_JASMINE`) | `717` (`TRAINER_LEADER_JASMINE_JASMINE_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
-| 52 | `34` (`TRAINER_LEADER_CHUCK_CHUCK`) | `34` (`TRAINER_LEADER_CHUCK_CHUCK`) | `718` (`TRAINER_LEADER_CHUCK_CHUCK_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
-| 53 | `32` (`TRAINER_LEADER_PRYCE_PRYCE`) | `32` (`TRAINER_LEADER_PRYCE_PRYCE`) | `716` (`TRAINER_LEADER_PRYCE_PRYCE_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
-| 54 | `35` (`TRAINER_LEADER_CLAIR_CLAIR`) | `35` (`TRAINER_LEADER_CLAIR_CLAIR`) | `719` (`TRAINER_LEADER_CLAIR_CLAIR_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
-| 55 | `253` (`TRAINER_LEADER_BROCK_BROCK`) | `253` (`TRAINER_LEADER_BROCK_BROCK`) | `720` (`TRAINER_LEADER_BROCK_BROCK_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
-| 56 | `254` (`TRAINER_LEADER_MISTY_MISTY`) | `254` (`TRAINER_LEADER_MISTY_MISTY`) | `721` (`TRAINER_LEADER_MISTY_MISTY_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
-| 57 | `255` (`TRAINER_LEADER_LT_SURGE_LT__SURGE`) | `255` (`TRAINER_LEADER_LT_SURGE_LT__SURGE`) | `722` (`TRAINER_LEADER_LT_SURGE_LT__SURGE_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
-| 58 | `256` (`TRAINER_LEADER_ERIKA_ERIKA`) | `256` (`TRAINER_LEADER_ERIKA_ERIKA`) | `723` (`TRAINER_LEADER_ERIKA_ERIKA_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
-| 59 | `257` (`TRAINER_LEADER_JANINE_JANINE`) | `257` (`TRAINER_LEADER_JANINE_JANINE`) | `724` (`TRAINER_LEADER_JANINE_JANINE_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
-| 60 | `258` (`TRAINER_LEADER_SABRINA_SABRINA`) | `258` (`TRAINER_LEADER_SABRINA_SABRINA`) | `725` (`TRAINER_LEADER_SABRINA_SABRINA_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
-| 61 | `259` (`TRAINER_LEADER_BLAINE_BLAINE`) | `259` (`TRAINER_LEADER_BLAINE_BLAINE`) | `726` (`TRAINER_LEADER_BLAINE_BLAINE_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
-| 62 | `261` (`TRAINER_LEADER_BLUE_BLUE`) | `261` (`TRAINER_LEADER_BLUE_BLUE`) | `727` (`TRAINER_LEADER_BLUE_BLUE_2`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) | `0` (`TRAINER_NONE`) |
+> Research: [pret/pokeheartgold](https://github.com/pret/pokeheartgold), Eclipse (Luna).  
+
+| Row | Overlay 26 offset | Trainer | Entry 0 | Entry 1 | Entry 2 | Entry 3 | Entry 4 | Entry 5 |
+|:---:|---|---|---|---|---|---|---|---|
+| 0 | `0x020C` | Bird Keeper Jose | `414` | `414` | `303` | `446` | `602` | `0` |
+| 1 | `0x0218` | Picnicker Erin | `151` | `151` | `335` | `453` | `603` | `0` |
+| 2 | `0x0224` | Picnicker Liz | `27` | `27` | `276` | `277` | `518` | `0` |
+| 3 | `0x0230` | School Kid M Chad | `397` | `397` | `434` | `435` | `507` | `0` |
+| 4 | `0x023C` | Sailor Huey | `211` | `211` | `440` | `441` | `509` | `0` |
+| 5 | `0x0248` | Bug Catcher Wade | `4` | `4` | `461` | `460` | `512` | `0` |
+| 6 | `0x0254` | Youngster Joey | `8` | `8` | `279` | `280` | `510` | `0` |
+| 7 | `0x0260` | School Kid M Jack | `178` | `178` | `430` | `431` | `503` | `0` |
+| 8 | `0x026C` | Ace Trainer M Gaven | `102` | `102` | `456` | `457` | `604` | `0` |
+| 9 | `0x0278` | Black Belt Kenji | `17` | `17` | `250` | `278` | `605` | `0` |
+| 10 | `0x0284` | Hiker Parry | `145` | `145` | `451` | `452` | `606` | `0` |
+| 11 | `0x0290` | Picnicker Tiffany | `402` | `402` | `466` | `467` | `522` | `0` |
+| 12 | `0x029C` | Hiker Anthony | `61` | `61` | `100` | `155` | `523` | `0` |
+| 13 | `0x02A8` | Ace Trainer F Reena | `114` | `114` | `444` | `445` | `607` | `0` |
+| 14 | `0x02B4` | Fisherman Wilton | `124` | `124` | `325` | `450` | `608` | `0` |
+| 15 | `0x02C0` | Ace Trainer F Jamie | `113` | `113` | `458` | `459` | `609` | `0` |
+| 16 | `0x02CC` | Juggler Irwin | `7` | `7` | `454` | `455` | `527` | `0` |
+| 17 | `0x02D8` | Poké Maniac Brent | `131` | `131` | `172` | `173` | `530` | `0` |
+| 18 | `0x02E4` | School Kid M Alan | `24` | `24` | `432` | `433` | `505` | `0` |
+| 19 | `0x02F0` | Pokéfan M Derek | `44` | `44` | `438` | `439` | `610` | `0` |
+| 20 | `0x02FC` | Picnicker Gina | `65` | `65` | `142` | `334` | `520` | `0` |
+| 21 | `0x0308` | Fisherman Tully | `123` | `123` | `323` | `324` | `517` | `0` |
+| 22 | `0x0314` | Pokéfan F Beverly | `182` | `182` | `436` | `437` | `611` | `0` |
+| 23 | `0x0320` | Bird Keeper Vance | `137` | `137` | `447` | `448` | `612` | `0` |
+| 24 | `0x032C` | Fisherman Ralph | `57` | `57` | `462` | `463` | `515` | `0` |
+| 25 | `0x0338` | Camper Todd | `66` | `66` | `274` | `275` | `525` | `0` |
+| 26 | `0x0344` | Bug Catcher Arnie | `78` | `78` | `360` | `449` | `513` | `0` |
+| 27 | `0x0350` | Lass Dana | `400` | `400` | `464` | `465` | `528` | `0` |
+| 28 | `0x035C` | Lass Krise | `184` | `184` | `613` | `614` | `615` | `0` |
+| 29 | `0x0368` | Youngster Ian | `64` | `64` | `616` | `617` | `618` | `0` |
+| 30 | `0x0374` | Firebreather Walt | `388` | `388` | `619` | `620` | `621` | `0` |
+| 31 | `0x0380` | Bug Catcher Doug | `140` | `140` | `622` | `623` | `624` | `0` |
+| 32 | `0x038C` | Bug Catcher Rob | `48` | `48` | `625` | `626` | `627` | `0` |
+| 33 | `0x0398` | Biker Reese | `313` | `313` | `628` | `629` | `630` | `0` |
+| 34 | `0x03A4` | Biker Aiden | `574` | `574` | `631` | `632` | `633` | `0` |
+| 35 | `0x03B0` | Biker Ernest | `579` | `579` | `634` | `635` | `636` | `0` |
+| 36 | `0x03BC` | Teacher Hillary | `382` | `382` | `637` | `638` | `639` | `0` |
+| 37 | `0x03C8` | School Kid M Billy | `331` | `331` | `640` | `641` | `642` | `0` |
+| 38 | `0x03D4` | Twins Kay & Tia | `569` | `569` | `643` | `644` | `645` | `0` |
+| 39 | `0x03E0` | Bird Keeper Josh | `565` | `565` | `646` | `647` | `648` | `0` |
+| 40 | `0x03EC` | School Kid M Torin | `567` | `567` | `649` | `650` | `651` | `0` |
+| 41 | `0x03F8` | Young Couple Tim & Sue | `559` | `559` | `652` | `653` | `654` | `0` |
+| 42 | `0x0404` | Hiker Kenny | `358` | `358` | `655` | `656` | `657` | `0` |
+| 43 | `0x0410` | Camper Tanner | `561` | `561` | `658` | `659` | `660` | `0` |
+| 44 | `0x041C` | Fisherman Kyle | `59` | `59` | `661` | `662` | `663` | `0` |
+| 45 | `0x0428` | Fisherman Kyler | `558` | `558` | `664` | `665` | `666` | `0` |
+| 46 | `0x0434` | Gentleman Alfred | `401` | `401` | `672` | `673` | `674` | `0` |
+| 47 | `0x0440` | Gym Leader Falkner | `20` | `20` | `712` | `0` | `0` | `0` |
+| 48 | `0x044C` | Gym Leader Bugsy | `21` | `21` | `713` | `0` | `0` | `0` |
+| 49 | `0x0458` | Gym Leader Whitney | `30` | `30` | `714` | `0` | `0` | `0` |
+| 50 | `0x0464` | Gym Leader Morty | `31` | `31` | `715` | `0` | `0` | `0` |
+| 51 | `0x0470` | Gym Leader Jasmine | `33` | `33` | `717` | `0` | `0` | `0` |
+| 52 | `0x047C` | Gym Leader Chuck | `34` | `34` | `718` | `0` | `0` | `0` |
+| 53 | `0x0488` | Gym Leader Pryce | `32` | `32` | `716` | `0` | `0` | `0` |
+| 54 | `0x0494` | Gym Leader Clair | `35` | `35` | `719` | `0` | `0` | `0` |
+| 55 | `0x04A0` | Gym Leader Brock | `253` | `253` | `720` | `0` | `0` | `0` |
+| 56 | `0x04AC` | Gym Leader Misty | `254` | `254` | `721` | `0` | `0` | `0` |
+| 57 | `0x04B8` | Gym Leader Lt. Surge | `255` | `255` | `722` | `0` | `0` | `0` |
+| 58 | `0x04C4` | Gym Leader Erika | `256` | `256` | `723` | `0` | `0` | `0` |
+| 59 | `0x04D0` | Gym Leader Janine | `257` | `257` | `724` | `0` | `0` | `0` |
+| 60 | `0x04DC` | Gym Leader Sabrina | `258` | `258` | `725` | `0` | `0` | `0` |
+| 61 | `0x04E8` | Gym Leader Blaine | `259` | `259` | `726` | `0` | `0` | `0` |
+| 62 | `0x04F4` | Gym Leader Blue | `261` | `261` | `727` | `0` | `0` | `0` |
 
 </details>
 
-### Schedule and story gates
+#### Rematch flow
 
-The weekday/time fields are requirements only for a phone-script condition that reads them; they are not universal rematch requirements.
+After the relevant phone script executes, the game selects the trainer battle as follows:
 
-For ordinary generic contacts, the header that creates the scheduled rematch offer is `PHONECALLGENERIC_POSTROCKETWEEKTIME`. It requires all of the following:
+1. The phone script sets `PhoneRematch.seeking` for the contact.
+2. The trainer battle lookup checks that bit and uses the contact's `trainerId` from `pmtel_book.dat` to find its Overlay 26 row.
+3. Starting at entry `1`, it checks entries in order:
+   - If an entry contains `TRAINER_NONE` (`0`), it selects the immediately preceding entry and stops. This can select entry `0`: `TRAINER_NONE` in entry `1` selects entry `0`; `TRAINER_NONE` in entry `5` selects entry `4`.
+   - Otherwise, if that trainer battle has not been beaten, it selects that entry and stops.
+   - Otherwise, it continues to the next entry.
+   - If it reaches the end without either condition, it selects entry `5`.
+4. If the selected entry is `1` through `5`, the game checks its tier-unlock flag: `0x97B + entry index`. If that flag is clear, it returns the previous entry without rechecking whether that earlier battle has been beaten or whether its own tier flag is set. If no earlier rematch entry exists, it returns entry `0`.
+5. The shared field script starts the returned trainer battle even if that battle has already been beaten. After a win, it sets that battle's trainer flag and clears `PhoneRematch.seeking`.
 
-1. `FLAG_BEAT_RADIO_TOWER_ROCKETS` is set.
-2. The hardware weekday equals `rematchWeekday`.
-3. The current morning/day/night value equals `rematchTimeOfDay`.
-4. The header's chance roll succeeds.
+This means rematch teams can be fought repeatedly. Trainer flags normally move selection towards the next team, but they do not prevent a selected fallback team from being fought again after another qualifying phone call.
 
-The generic `FIGHTPOSTROCKETS` condition also prevents a generic rematch script from being selected before the Radio Tower flag is set. Unlike `POSTROCKETWEEKTIME`, it does not read the phonebook record's weekday or time bytes, so an offer using this condition is not schedule-gated. Other headers prevent another offer while `PhoneRematch.seeking` is already set, prevent calls while a dynamic gift is waiting, and exclude National Park during the Bug-Catching Contest. These are separate header conditions, so changing only the two schedule bytes does not remove the story and persistent-state gates.
+Entry `0` is therefore a real fallback, not only the row's lookup ID. For example, a custom unbeaten entry `1` with `0x97C` clear falls back to entry `0`.
 
-Gym Leaders use the same two schedule bytes in their dedicated handler, but their requirements are different: the player must have all 16 badges, no rematch may already be pending for that leader, the schedule must match, and the Fighting Dojo must have capacity before the leader sets `seeking`.
+In vanilla, entry `1` duplicates the base battle and entry `5` is `TRAINER_NONE`. Once entry `4` has been beaten, the scan reaches entry `5`, selects entry `4`, and allows that final upgraded team to be fought repeatedly.
+
+:::caution
+`0xFFFF` is not a safe placeholder in a rematch row. The selector skips it only while searching for an unbeaten candidate or walking backwards for an unlocked fallback. It does not skip it when a later `TRAINER_NONE` (`0`) terminator selects the preceding entry, and it does not validate the resulting trainer ID. Do not use `0xFFFF` as a repeat marker or immediately before a `TRAINER_NONE` terminator.
+:::
 
 ### Gym Leader rematches
 
-Gym Leaders do not use the ordinary overlay 26 trainer-progression table. Their dedicated phone handler uses persistent rematch state and Fighting Dojo availability to offer the Gym Leader rematch flow.
+Gym Leaders use a dedicated phone handler to offer rematches, but the pending battle is selected from their Overlay 26 row by the same rematch-table lookup used for ordinary trainers. In vanilla, each Gym Leader row has the base battle in entries `0` and `1`, the first upgraded battle in entry `2`, and `TRAINER_NONE` in entries `3`–`5`.
 
-Changing an ordinary trainer's overlay 26 row cannot create a Gym Leader rematch. Likewise, changing a Gym Leader's weekday or normal trainer ID does not replace the Fighting Dojo logic.
+An outgoing Gym Leader call checks all 16 badges, no existing pending rematch, and the contact's weekday/time-of-day fields before offering the battle. The player must also accept the offer before the handler sets `seeking`. Editing a Gym Leader row can change or extend its battle tiers; it does not alter those rematch availability conditions. Conversely, the ordinary generic `0x0C6` availability condition does not control Gym Leader rematches.
+
+### Extending Rematch Tiers
+
+The rematch-table mechanics apply to ordinary phone trainers and Gym Leaders: once a rematch has been offered, the matching Overlay 26 row supplies its battle ID. These changes alter battle-team progression only; they do not alter the separate rematch availability conditions.
+
+#### Add a later tier: entry `5`
+
+Replace `TRAINER_NONE` in entry `5` with a new trainer battle ID, then set tier flag `0x980` from a field script at the desired later milestone (after defeating Trainer Red, for example). Once entry `4` has been beaten, the selector can use the new entry `5` team. This does not require a new table or a larger row.
+
+For an ordinary trainer row, vanilla already supplies entries `1`–`4`. For a Gym Leader row, vanilla entries `3`–`5` are `TRAINER_NONE`; populate every preceding entry that the selector must pass, because the first `TRAINER_NONE` ends its scan. The Gym Leader's separate offer requirements still apply.
+
+#### Add an earlier tier: entry `1`
+
+Replace the duplicate base battle ID in entry `1` with a new trainer battle ID, then set tier flag `0x97C` from a field script at the desired milestone. After the base battle has been beaten, the selector uses this new team when `0x97C` is set; before then, it falls back to entry `0`. This changes the rematch progression only. For Gym Leaders, it does not bypass their separate rematch availability conditions: 16 badges, schedule, and pending state.
+
+### Rematch availability conditions
+
+Rematch availability conditions decide whether a phone call can set `PhoneRematch.seeking`. They are separate from tier unlocks, which decide which battle is selected after `seeking` is set.
+
+Ordinary trainers use different conditions depending on who starts the call:
+
+| Direction | How a new rematch is offered | Requirements |
+|---|---|---|
+| Player calls trainer | A scheduled offer | Radio Tower cleared; matching weekday and time of day; chance roll. |
+| Trainer calls player | A random offer | Radio Tower cleared; chance roll; no weekday or time check. |
+
+The player-call route applies when the trainer is on a different map. A call to a trainer on the current map uses that contact's local call script instead. If a rematch is already pending, the ordinary-trainer phone scripts select an existing-rematch message rather than making another offer.
+
+Weekday and time are therefore not universal rematch requirements: they apply to ordinary trainers only when the player initiates the new offer. Gym Leaders are a separate case; their outgoing handler also checks those fields, as described above.
+
+#### Radio Tower availability condition (ordinary contacts only)
+
+This subsection applies only to ordinary generic contacts, not Gym Leaders. The generic phone-condition code tests `FLAG_BEAT_RADIO_TOWER_ROCKETS` (`0x0C6`) before it permits relevant rematch calls. This is independent of rematch-tier flags. A hack may leave this availability condition at its vanilla point, change the phone-condition tests to another flag, or deliberately align it with `0x97C`.
+
+The Radio Tower availability condition is `FLAG_BEAT_RADIO_TOWER_ROCKETS` (`0x0C6`). It is distinct from rematch-tier flag `0x97D`, which controls whether the Overlay 26 selector can use vanilla entry `2`. The Radio Tower completion sequence sets both flags, but the generic header checks `0x0C6` and the battle-team selector checks `0x97D` separately.
+
+The generic `FIGHTPOSTROCKETS` condition also prevents a generic rematch script from being selected before the Radio Tower flag is set. Unlike `POSTROCKETWEEKTIME`, it does not read the phonebook record's weekday or time bytes. Other headers prevent another offer while `PhoneRematch.seeking` is already set, prevent calls while a dynamic gift is waiting, and exclude National Park during the Bug-Catching Contest. These are separate rematch availability conditions, so changing only the two schedule bytes does not remove them.
+
+The Radio Tower flag is tested at three separate places in the **US vanilla decompressed Overlay 101**. The file offsets below are relative to `overlay_0101.bin`; its load address is `0x021E7740`.
+
+| Header condition | What the condition adds | Function entry | `0x0C6` load |
+| --- | --- | --- | --- |
+| `FIGHTPOSTROCKETS` | Rejects a rematch script before Radio Tower; also rejects a caller already seeking a rematch or holding a dynamic gift. | `0xB578` (RAM `0x021F2CB8`) | `0xB5A4` |
+| `FIGHTPOSTROCKETSNOTBUGCONTEST` | Requires Radio Tower, rejects National Park during an active Bug-Catching Contest, and requires an already-pending rematch. | `0xB608` (RAM `0x021F2D48`) | `0xB612` |
+| `POSTROCKETWEEKTIME` | Requires Radio Tower, then checks the contact's weekday and time-of-day bytes. | `0xB5D0` (RAM `0x021F2D10`) | `0xB5D8` |
+
+Overlay 101 calls these three conditions separately at `0xB4C4`, `0xB4CE`, and `0xB4E2`. Each condition loads `0x0C6` with the Thumb instruction `MOVS R1, #0xC6`, so patch every condition whose availability rule should change. A replacement flag from `0x0000` through `0x00FF` can use the existing one-byte immediate; `0x0100` or above, including `0x97C`, requires code that loads a full 16-bit flag ID. Do not move the normal setter for `0x0C6`: the flag also controls unrelated game behaviour.
+
+The following existing low-byte milestone flags can be substituted as read-only availability conditions:
+
+| Vanilla milestone flag | Immediate byte | Replacement availability condition first passes after |
+|---|:---:|---|
+| `FLAG_GOT_POKEGEAR` (`0x09C`) | `9C` | Receiving the Pokegear. |
+| `FLAG_GOT_EGG_FROM_ELMS_ASSISTANT` (`0x070`) | `70` | Receiving the Togepi Egg; Route 32 progression is blocked until this flag is set. |
+| `FLAG_GOT_TM30_FROM_MORTY` (`0x0A6`) | `A6` | Beating Morty and receiving TM30. |
+| `FLAG_GOT_HM03` (`0x0A2`) | `A2` | Receiving HM03 after the Kimono Girls, when Surf travel becomes available. |
+
+These are existing vanilla flags, not free flags for new state. They are suitable only as read-only milestone conditions; reusing or changing their normal setters would affect their original game behaviour. Changing this availability condition also does not alter tier unlocks or create trainer rematch teams; the applicable weekday/time, chance, and pending-state conditions still apply.
 
 ---
 
@@ -671,11 +714,17 @@ There are two item systems that are easy to confuse:
 | Gift path | Storage | Retrieval |
 |---|---|---|
 | Contact-configured rematch reward | `PhoneBookEntry.gift` | The post-rematch battle field script clears the pending rematch, calls `GetPhoneContactRandomGiftBerry`, and awards the returned item if it is nonzero. `ITEM_CHERI_BERRY` is a special sentinel: it returns one of the first ten berries at random. |
-| Dynamic phone-queued gift | `PhoneRematch.giftItem` | A `PHONESCRIPTTYPE_ITEM` phone outcome stores an item here. The field script calls `GetPhoneContactGiftItem` when no rematch is active; that command clears the queued item after reading it. |
+| Dynamic phone-queued gift | `PhoneRematch.giftItem` | A `PHONESCRIPTTYPE_ITEM` outcome resolves its item and stores the specific result here. `ITEM_CHERI_BERRY` becomes one of the first ten berries; `ITEM_POKE_BALL` becomes an Ultra Ball, Great Ball, or Poké Ball. The retrieval command clears the queued item immediately after reading it. |
 
 The first path is not a generic “static item” given merely because a contact exists. In vanilla it is the reward path after a trainer's rematch battle. The nonzero rows are Joey (HP Up), Kenji (PP Up), Huey (Protein), Vance (Carbos), Parry (Iron), Erin (Calcium), and Ian (random berry via the Cheri sentinel).
 
 The second path is the phone-only item offer system. Because the NPC field script checks for an available rematch before calling `GetPhoneContactGiftItem`, a queued dynamic gift is collected when no rematch battle is currently selected. This is the path relevant to item-only phone outcomes.
+
+`ITEM_CHERI_BERRY` and `ITEM_POKE_BALL` are therefore not fixed dynamic phone gifts: either value is interpreted as a random-item sentinel before it is queued. A fixed Cheri Berry or fixed Poké Ball cannot be awarded through a normal `PHONESCRIPTTYPE_ITEM` definition. In contrast, the static rematch-reward path treats only Cheri Berry specially; a static `PhoneBookEntry.gift` value of `ITEM_POKE_BALL` remains a fixed Poké Ball.
+
+:::caution
+`GetPhoneContactGiftItem` clears a dynamic gift before the field script checks Bag space. If the Bag is full, the player receives the full-Bag message but the queued dynamic gift has already been lost.
+:::
 
 ---
 
