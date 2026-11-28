@@ -10,10 +10,10 @@ tags:
 
 # Overworld Sprite Replacement Guide
 > Author(s): [SpagoAsparago](https://github.com/SpagoAsparago) <br />
-> Research: [Known Sprite Locations document](https://docs.google.com/document/d/1_nRfhDEoNFbvYP-yjx4oAWmgGXxvqFBvLwYANFehxUU/edit), BagBoy (OW tables research).
+> Research: [Known Sprite Locations document](/docs/generation-iv/resources/sprite_locations/), BagBoy (OW tables research).
 
 This is a guide on how to extract, replace, change the properties and make your own overworld sprites.
-The necessary tools are Tinke 0.9.2 and BTX Editor 2.0.
+The necessary tools are Tinke 0.9.2 and BTX Editor 2.0 or DSPRE.
 
 In addition for the Sprite Properties section you will need DSPRE and an Hex Editor like HxD as well.
 
@@ -51,37 +51,38 @@ You can load this file in the BTX Editor 2.0 to either extract the spritesheet i
 ![](resources/btxeditor.PNG)
 
 <details>
- <summary>Where to find all Player Character Sprites.</summary>
- <p>
-   Diamond and Pearl
-   Lucas:
-		90 - Walking/Running
-		92 - Bike
-		155 - Pull out Pokeball
-		157 - Water flower
-		159 - Surf
-164 - Tux
-166 - Fishing
-363 - Aerobics
-365 - Save
-367 - Pokecenter
+ <summary>Where to find all Player Character Sprites</summary>
 
-Heroine:
-91 - Walking/Running
-		93 - Bike
-		156 - Pull out Pokeball
-		158 - Water flower
-		160 - Surf
-165 - Dress
-167 - Fishing
-364 - Aerobics
-366 - Save
-368 - Pokecenter
+Diamond and Pearl  
+Lucas:
+- 90 - Walking/Running
+- 92 - Bike
+- 155 - Pull out Pokeball
+- 157 - Water flower
+- 159 - Surf
+- 164 - Tux
+- 166 - Fishing
+- 363 - Aerobics
+- 365 - Save
+- 367 - Pokecenter
 
-  </p>
-</details>
+Dawn:
+- 91 - Walking/Running
+-	93 - Bike
+-	156 - Pull out Pokeball
+-	158 - Water flower
+-	160 - Surf
+- 165 - Dress
+- 167 - Fishing
+- 364 - Aerobics
+- 366 - Save
+- 368 - Pokecenter
 
 </details>
+
+</details>
+
+---
 
 ## Making your own Sprite
 Before proceeding you should be familiar with Sprite Indexing, as all the sprites must have at most 16 color, with the background color being indexed to the first slot of the palette.
@@ -94,12 +95,16 @@ If you're making your own sprite from scratch, remember that all the frames you 
 
 ![](resources/wrongsprite.PNG)
 
-Once you're done, you can open the BTX you previously extracted in BTX Editor 2.0 and click import, then import the spritesheet you made, and save the BTX.
+Once you're done, you can open the BTX you previously extracted and click import, then import the spritesheet you made, and save the BTX.
+
+---
 
 ## Replacing the Sprite  
 :::info
-If your replacement sprite has a different size and/or number of frames from the sprite to the original (and you will therefore need to change the [sprite properties](#changing-the-sprite-properties) as well, the Tinke method will be needed. If the replacement sprite is the same size and number of frames, the DSPRE import method can be used.
+If your replacement sprite has a different size and/or number of frames from the sprite to the original (and you will therefore need to change the [sprite properties](#changing-the-sprite-properties) as well), the Tinke method will be needed. If the replacement sprite is the same size and number of frames, the DSPRE import method can be used.
 :::
+
+Remember that overworld definitions and sprites are not necessarily one-to-one. In some cases in the vanilla games, multiple overworlds use the exact same sprite graphics (while in others they use dupliciate identical graphics files). Replacing the graphics will replace them for any overworld using them.
 
 ### Tinke BTX Import Method  
 Replacing the sprite simply consists in just clicking the "Change File" button in Tinke on the BTX file you want to replace, and then select the BTX you either extracted or obtained from BTX Editor. Don't forget to **click the Pack button on the narc file** after you've replaced the BTX. Now you can save the ROM.
@@ -118,9 +123,11 @@ Just remember that the sprite you're inserting must have the same size and numbe
 DSPRE will only accept a replacement sprite sheet of the same dimensions as the original, if you need to change the size or number of frames, use the Tinke method.
 
 ### Unused Sprites
-Adding new overworld sprites would require ASM but luckily there are a number of unused sprites that may be useful to you:
+Adding new overworld sprites would require repointing tables but luckily there are a number of unused sprites that may be useful to you:
 
 ![](resources/unusedsprites.png)
+
+---
 
 ## Changing the Sprite Properties
 If you've replaced a sprite with one having a different number of frames or a different size, the sprite will either not display correctly in game or not display at all if it has a different size.
@@ -163,7 +170,7 @@ If the two frames are different you can set the OW movement to *20-Running Up, D
 
 ### HGSS
 
-- Overworld Properties
+- Overworld Properties:
   - [Effects](#properties-effects)
   - [Graphics behaviour](#properties-graphics-behaviour)
   - [Rendering setup](#properties-rendering-setup)
@@ -184,7 +191,7 @@ There are 6 bytes for each entry, laid out as below:
 | `+2` (green) | 2 bytes | Graphics member in `a/0/8/1` |
 | `+4` (blue) | 2 bytes | Packed properties |
 
-The two-byte **packed properties** value contains three indices: **effects, graphics behaviour and rendering setup**. These define all overworld behaviour (shadows, beach footsteps, reflections; which model to apply the graphics to; number of frames and how the animations use them).
+The two-byte **packed properties** value contains three indices: **effects, graphics behaviour and rendering setup**. These define overworld behaviour (shadows, beach footsteps, reflections; which model to apply the graphics to; number of frames and how the animations use them).
 
 | Properties bits | Index calculation | Selects | Overlay offset / RAM address | Table layout |
 | --- | --- | --- | --- | --- |
@@ -202,27 +209,27 @@ Chooses **shadow style, footprints/tyre tracks and whether reflections are enabl
 <details>
 <summary>Effects (details)</summary>
 
-| OW bits 4–0 | Index | Table value | OW count | Shadow | Ground prints | Reflections | Example OW IDs |
-| --- | ---: | --- | ---: | --- | --- | --- | --- |
-| `00000` | 0 | `0x0891` | 221 | Standard | Normal footprints | Enabled | `1` NPC; `84` rock; `86` tree |
-| `00001` | 1 | `0x0911` | 4 | Standard | Cycling tracks | Enabled | `38`/`39` cycling NPCs; `21`/`98` cycling players |
-| `00010` | 2 | `0x0012` | 1 | Standard | Disabled | Disabled | `183` special appearance |
-| `00011` | 3 | `0x0000` | 1 | Disabled | Disabled | Disabled | `8192` camera focus |
-| `00100` | 4 | `0x0002` | 25 | Disabled | Disabled | Disabled | `234` object; `350` trophy |
-| `00101` | 5 | `0x0001` | 9 | Disabled | Disabled | Disabled | `415` follower placeholder; `425`/`426` legendary objects |
-| `00110` | 6 | `0x0801` | 13 | Disabled | Disabled | Enabled | `479` Diglett; `480` Dugtrio |
-| `00111` | 7 | `0x0811` | 593 | Standard | Disabled | Enabled | `428` Bulbasaur; `262` Apricorn tree |
-| `01000` | 8 | `0x0821` | 34 | Offset | Disabled | Enabled | `843` Kyogre; `782` Wailord |
-| `01001` | 9 | `0x0000` | 0 | Disabled | Disabled | Disabled | Unused |
-| **Total** | | | **901** | | | | |
+| OW bits 4–0 | Index | Table value | Shadow | Ground prints | Reflections | OW count | Example OW IDs |
+| --- | ---: | --- | --- | --- | --- | ---: | --- |
+| `00000` | 0 | `0x0891` | Standard | Normal footprints | Enabled | 221 | `1` NPC; `84` rock; `86` tree |
+| `00001` | 1 | `0x0911` | Standard | Cycling tracks | Enabled | 4 | `38`/`39` cycling NPCs; `21`/`98` cycling players |
+| `00010` | 2 | `0x0012` | Standard | Disabled | Disabled | 1 | `183` special appearance |
+| `00011` | 3 | `0x0000` | Disabled | Disabled | Disabled | 1 | `8192` camera focus |
+| `00100` | 4 | `0x0002` | Disabled | Disabled | Disabled | 25 | `234` object; `350` trophy |
+| `00101` | 5 | `0x0001` | Disabled | Disabled | Disabled | 9 | `415` follower placeholder; `425`/`426` legendary objects |
+| `00110` | 6 | `0x0801` | Disabled | Disabled | Enabled | 13 | `479` Diglett; `480` Dugtrio |
+| `00111` | 7 | `0x0811` | Standard | Disabled | Enabled | 593 | `428` Bulbasaur; `262` Apricorn tree |
+| `01000` | 8 | `0x0821` | Offset | Disabled | Enabled | 34 | `843` Kyogre; `782` Wailord |
+| `01001` | 9 | `0x0000` | Disabled | Disabled | Disabled | 0 | Unused |
+| **Total** |  |  |  |  |  | **901** |  |
 
-Effects depend on terrain and actor state; large Pokémon still use normal-sized footprints ad shadows. Counts are OW *definitions*, not distinct **graphics files** (some OW definitions use the same graphics).  
+Effects depend on terrain and overworld state; large Pokémon still use normal-sized footprints and shadows. Counts are OW *definitions*, not distinct **graphics files** (some OW definitions use the same graphics).  
 
 Each preset index selects another halfword at `0x21400 + index × 2`:
 
 | Selected settings bits | Meaning |
 | --- | --- |
-| 0–3 | Some kiind of category* |
+| 0–3 | Some kind of category* |
 | 4–6 | Shadow: `0` none, `1` standard, `2` offset (this shadow is slightly further back than the standard one) |
 | 7–10 | Ground prints: `0` none, `1` footprints, `2` tyre tracks |
 | 11–12 | Reflection permission: `0` disabled, `1` enabled |
@@ -252,7 +259,7 @@ Aside from interaction-specific player behaviours (related to fishing, climbing 
 - **`13`** static (large) Ho-Oh/Lugia  
 - **`16`/`17`** Pokémon (equivalent behaviour)
 
-| Index | Overlay offset / RAM address | OW count | Vanilla users / examples |
+| Index | Overlay offset / RAM address | OW count | Example OW IDs |
 | ---: | --- | ---: | --- |
 | 0 | `0x21428` / `0x02206D28` | 190 | NPC: `1`, `38`/`39` |
 | 1 | `0x214B4` / `0x02206DB4` | 26 | Objects: `84` rock, `87` item ball, `86` tree |
@@ -296,37 +303,63 @@ Read the eight-byte entry at `0x21A18 + index × 8`:
 
 Both maps end with selection ID `0xFF`; look up the selection ID rather than treating it as a member number.
 
-| Map | Selector → archive member |
-| --- | --- |
-| Models | 0 → 266; 1 → 267; 2 → 268; 5 → 269; 6 → 270; 11 → 271; 7 → 272; 8 → 273; 9 → 274; 10 → 269; 12 → 276; 13 → 278; 15 → 279 |
-| Frame maps | 0 → 280; 1 → 281; 3 → 282; 4 → 283; 5 → 284; 6 → 285; 10 → 286; 23 → 287; 11 → 288; 13 → 289; 14 → 290; 15 → 291; 21 → 292; 22 → 292; 24 → 293; 26 → 294; 27 → 295; 28 → 296 |
+<details>
+<summary>Selection ID to archive member mappings</summary>
 
-| Rendering index | OW count | Model archive member | Frame-map archive member | Sequence overlay offset / RAM address | Example OW |
-| ---: | ---: | --- | --- | --- | --- |
-| 0 | 198 | 266 | 280 | `0x217D8` / `0x022070D8` | NPC: `1`; Objects: `86` tree |
-| 1 | 2 | 267 | 280 | `0x217D8` / `0x022070D8` | Objects: `84` rock, `87` item ball |
-| 2 | 1 | 268 | 280 | `0x217D8` / `0x022070D8` | Objects: `85` breakable rock |
-| 3 | 1 | 276 | 280 | `0x217D8` / `0x022070D8` | Objects: `250` |
-| 4 | 1 | 279 | 280 | `0x217D8` / `0x022070D8` | Objects: `290` door |
-| 5 | 1 | 266 | 288 | `0x21814` / `0x02207114` | NPC: Pokémon Centre attendant `335` |
-| 6 | 2 | 266 | 282 | `0x218C8` / `0x022071C8` | Player: Cycling `21`/`98` |
-| 7 | 10 | 266 | 281 | `0x2185C` / `0x0220715C` | Player: Main `0`/`97`, `238`/`239` |
-| 8 | 2 | 266 | 283 | `0x215BC` / `0x02206EBC` | Player: Saving `176`/`177` |
-| 9 | 2 | 266 | 285 | `0x2179C` / `0x0220709C` | Player: Surf `178`/`179` |
-| 10 | 2 | 266 | 284 | `0x215F8` / `0x02206EF8` | Player: Watering Can (DPPt leftover) `180`/`181` |
-| 11 | 2 | 270 | 286 | `0x216AC` / `0x02206FAC` | Player: Fishing `188`/`189` |
-| 12 | 2 | 271 | 287 | `0x21724` / `0x02207024` | Player: Ladder climb `248`/`249` |
-| 13 | 4 | 266 | 291 | `0x2161C` / `0x02206F1C` | Player: Heal `200`/`201`, `260`/`261` |
-| 14 | 2 | 266 | 294 | `0x216E8` / `0x02206FE8` | Player: Apricorn tree shake `423`/`424` |
-| 15 | 2 | 266 | 289 | `0x21760` / `0x02207060` | Player: DPPt Leftover `196`/`197` |
-| 16 | 4 | 266 | 290 | `0x215A4` / `0x02206EA4` | Player: Saving `198`/`199` |
-| 17 | 1 | 269 | 295 | `0x215D4` / `0x02206ED4` | Static Ho-Oh `425` |
-| 18 | 1 | 269 | 296 | `0x215D4` / `0x02206ED4` | Static Lugia `426` |
-| 19 | 591 | 266 | 292 | `0x21670` / `0x02206F70` | Follower: Standard `428`, `479` |
-| 20 | 37 | 269 | 292 | `0x21670` / `0x02206F70` | Follower: Large `843`, `782`; placeholders `418`–`420` |
-| 21 | 8 | 278 | 293 | `0x21640` / `0x02206F40` | Objects: Apricorn trees `262`–`269` |
-| 22 | 7 | 278 | 280 | `0x217D8` / `0x022070D8` | Objects: `270`–`276` |
-| 23 | 5 | 269 | 280 | `0x217D8` / `0x022070D8` | Objects: Snorlax `395`; `349` |
+| Selection ID | Model archive member | Frame-map archive member |
+| ---: | ---: | ---: |
+| 0 | 266 | 280 |
+| 1 | 267 | 281 |
+| 2 | 268 | — |
+| 3 | — | 282 |
+| 4 | — | 283 |
+| 5 | 269 | 284 |
+| 6 | 270 | 285 |
+| 7 | 272 | — |
+| 8 | 273 | — |
+| 9 | 274 | — |
+| 10 | 269 | 286 |
+| 11 | 271 | 288 |
+| 12 | 276 | — |
+| 13 | 278 | 289 |
+| 14 | — | 290 |
+| 15 | 279 | 291 |
+| 21 | — | 292 |
+| 22 | — | 292 |
+| 23 | — | 287 |
+| 24 | — | 293 |
+| 26 | — | 294 |
+| 27 | — | 295 |
+| 28 | — | 296 |
+
+</details>
+
+| Rendering index | Model archive member | Frame-map archive member | Sequence overlay offset / RAM address | OW count | Example OW IDs |
+| ---: | --- | --- | --- | ---: | --- |
+| 0 | 266 | 280 | `0x217D8` / `0x022070D8` | 198 | NPC: `1`; Objects: `86` tree |
+| 1 | 267 | 280 | `0x217D8` / `0x022070D8` | 2 | Objects: `84` rock, `87` item ball |
+| 2 | 268 | 280 | `0x217D8` / `0x022070D8` | 1 | Objects: `85` breakable rock |
+| 3 | 276 | 280 | `0x217D8` / `0x022070D8` | 1 | Objects: `250` |
+| 4 | 279 | 280 | `0x217D8` / `0x022070D8` | 1 | Objects: `290` door |
+| 5 | 266 | 288 | `0x21814` / `0x02207114` | 1 | NPC: Pokémon Centre attendant `335` |
+| 6 | 266 | 282 | `0x218C8` / `0x022071C8` | 2 | Player: Cycling `21`/`98` |
+| 7 | 266 | 281 | `0x2185C` / `0x0220715C` | 10 | Player: Main `0`/`97`, `238`/`239` |
+| 8 | 266 | 283 | `0x215BC` / `0x02206EBC` | 2 | Player: Saving `176`/`177` |
+| 9 | 266 | 285 | `0x2179C` / `0x0220709C` | 2 | Player: Surf `178`/`179` |
+| 10 | 266 | 284 | `0x215F8` / `0x02206EF8` | 2 | Player: Watering Can (DPPt leftover) `180`/`181` |
+| 11 | 270 | 286 | `0x216AC` / `0x02206FAC` | 2 | Player: Fishing `188`/`189` |
+| 12 | 271 | 287 | `0x21724` / `0x02207024` | 2 | Player: Ladder climb `248`/`249` |
+| 13 | 266 | 291 | `0x2161C` / `0x02206F1C` | 4 | Player: Heal `200`/`201`, `260`/`261` |
+| 14 | 266 | 294 | `0x216E8` / `0x02206FE8` | 2 | Player: Apricorn tree shake `423`/`424` |
+| 15 | 266 | 289 | `0x21760` / `0x02207060` | 2 | Player: DPPt Leftover `196`/`197` |
+| 16 | 266 | 290 | `0x215A4` / `0x02206EA4` | 4 | Player: Saving `198`/`199` |
+| 17 | 269 | 295 | `0x215D4` / `0x02206ED4` | 1 | Static Ho-Oh `425` |
+| 18 | 269 | 296 | `0x215D4` / `0x02206ED4` | 1 | Static Lugia `426` |
+| 19 | 266 | 292 | `0x21670` / `0x02206F70` | 591 | Follower: Standard `428`, `479` |
+| 20 | 269 | 292 | `0x21670` / `0x02206F70` | 37 | Follower: Large `843`, `782`; placeholders `418`–`420` |
+| 21 | 278 | 293 | `0x21640` / `0x02206F40` | 8 | Objects: Apricorn trees `262`–`269` |
+| 22 | 278 | 280 | `0x217D8` / `0x022070D8` | 7 | Objects: `270`–`276` |
+| 23 | 269 | 280 | `0x217D8` / `0x022070D8` | 5 | Objects: Snorlax `395`; `349` |
 
 Index `63` means this table **is not used.** Vanilla uses it for graphics behavious `15` (3D overworlds) objects and camera focus (OW 8192), whose graphics are handled separately.
 
