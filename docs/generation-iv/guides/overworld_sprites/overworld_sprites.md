@@ -172,7 +172,7 @@ If the two frames are different you can set the OW movement to *20-Running Up, D
 
 - Overworld Properties:
   - [Effects](#properties-effects)
-  - [Graphics behaviour](#properties-graphics-behaviour)
+  - [Graphics behavior](#properties-graphics-behavior)
   - [Rendering setup](#properties-rendering-setup)
 - [Following Pokémon](#following-pokémon)
 - [Adding new Overworlds](#overworld-expansion)
@@ -191,20 +191,20 @@ There are 6 bytes for each entry, laid out as below:
 | `+2` (green) | 2 bytes | Graphics member in `a/0/8/1` |
 | `+4` (blue) | 2 bytes | Packed properties |
 
-The two-byte **packed properties** value contains three indices: **effects, graphics behaviour and rendering setup**. These define overworld behaviour (shadows, beach footsteps, reflections; which model to apply the graphics to; number of frames and how the animations use them).
+The two-byte **packed properties** value contains three indices: **effects, graphics behavior and rendering setup**. These define overworld behavior (shadows, beach footsteps, reflections; which model to apply the graphics to; number of frames and how the animations use them).
 
 | Properties bits | Index calculation | Selects | Overlay offset / RAM address | Table layout |
 | --- | --- | --- | --- | --- |
 | **0–4** | `properties & 0x1F` | Effects preset | `0x21400` / `0x02206D00` | 10 × 2 bytes |
-| **5–9** | `(properties >> 5) & 0x1F` | Graphics behaviour | `0x24138` / `0x02209A38` | 20 × 4-byte pointers |
+| **5–9** | `(properties >> 5) & 0x1F` | Graphics behavior | `0x24138` / `0x02209A38` | 20 × 4-byte pointers |
 | **10–15** | `(properties >> 10) & 0x3F` | Rendering setup | `0x21A18` / `0x02207318` | 24 × 8 bytes |
 
-Example: **`0x4E27`** (bytes `27 4E`) selects **effects 7, behaviour 17, rendering 19**.
+Example: **`0x4E27`** (bytes `27 4E`) selects **effects 7, behavior 17, rendering 19**.
 
 #### Properties: Effects
 
 Defined by indices in bits 0-4.  
-Chooses **shadow style, footprints/tyre tracks and whether reflections are enabled**.
+Chooses **shadow style, footprints/tire tracks and whether reflections are enabled**.
 
 <details>
 <summary>Effects (details)</summary>
@@ -231,7 +231,7 @@ Each preset index selects another halfword at `0x21400 + index × 2`:
 | --- | --- |
 | 0–3 | Some kind of category* |
 | 4–6 | Shadow: `0` none, `1` standard, `2` offset (this shadow is slightly further back than the standard one) |
-| 7–10 | Ground prints: `0` none, `1` footprints, `2` tyre tracks |
+| 7–10 | Ground prints: `0` none, `1` footprints, `2` tire tracks |
 | 11–12 | Reflection permission: `0` disabled, `1` enabled |
 | 13–15 | Zero in all vanilla entries |
 
@@ -243,21 +243,21 @@ Followers (**map-object ID 253**) use different reflection routines. The same OW
 
 </details>
 
-#### Properties: Graphics behaviour
+#### Properties: Graphics behavior
 
 Defined by indices in bits 5-9.  
 Controls **which animation plays and how it plays**, according to facing and animation state. Other game logic chooses when to switch OW appearances.
 
 <details>
-<summary>Graphics behaviours (details)</summary>
+<summary>Graphics behaviors (details)</summary>
 
-Each preset index selects a group of five function pointers at `0x24138 + index × 4` that determine behaviour under different conditions/triggers:
+Each preset index selects a group of five function pointers at `0x24138 + index × 4` that determine behavior under different conditions/triggers:
 
-Aside from interaction-specific player behaviours (related to fishing, climbing ladders, saving etc.), the following are the most important "behaviours" to be aware of when configuring new NPCs or Pokémon:
+Aside from interaction-specific player behaviors (related to fishing, climbing ladders, saving etc.), the following are the most important "behaviors" to be aware of when configuring new NPCs or Pokémon:
 - **`0`** ordinary NPC 
 - **`1`** fixed-frame object  (no facing/walking changes)
 - **`13`** static (large) Ho-Oh/Lugia  
-- **`16`/`17`** Pokémon (equivalent behaviour)
+- **`16`/`17`** Pokémon (equivalent behavior)
 
 | Index | Overlay offset / RAM address | OW count | Example OW IDs |
 | ---: | --- | ---: | --- |
@@ -273,7 +273,7 @@ Aside from interaction-specific player behaviours (related to fishing, climbing 
 | 9 | `0x214A0` / `0x02206DA0` | 2 | Player: Ladder climb `248`/`249` |
 | 10 | `0x21568` / `0x02206E68` | 4 | Player: Heal `200`/`201`, `260`/`261` |
 | 11 | `0x21464` / `0x02206D64` | 2 | Player: DPPt Leftover `196`/`197` |
-| 12 | `0x21450` / `0x02206D50` | 1 | NPC: Pokémon Centre attendant `335` |
+| 12 | `0x21450` / `0x02206D50` | 1 | NPC: Pokémon Center attendant `335` |
 | 13 | `0x2143C` / `0x02206D3C` | 2 | Static Ho-Oh/Lugia `425`/`426` |
 | 14 | `0x2152C` / `0x02206E2C` | 0 | Unused |
 | 15 | `0x21504` / `0x02206E04` | 12 | 3D overworld objects (not "normal" sprites): `183`, `251`-`257`, `288`-`289`, `291`-`292` |
@@ -341,7 +341,7 @@ Both maps end with selection ID `0xFF`; look up the selection ID rather than tre
 | 2 | 268 | 280 | `0x217D8` / `0x022070D8` | 1 | Objects: `85` breakable rock |
 | 3 | 276 | 280 | `0x217D8` / `0x022070D8` | 1 | Objects: `250` |
 | 4 | 279 | 280 | `0x217D8` / `0x022070D8` | 1 | Objects: `290` door |
-| 5 | 266 | 288 | `0x21814` / `0x02207114` | 1 | NPC: Pokémon Centre attendant `335` |
+| 5 | 266 | 288 | `0x21814` / `0x02207114` | 1 | NPC: Pokémon Center attendant `335` |
 | 6 | 266 | 282 | `0x218C8` / `0x022071C8` | 2 | Player: Cycling `21`/`98` |
 | 7 | 266 | 281 | `0x2185C` / `0x0220715C` | 10 | Player: Main `0`/`97`, `238`/`239` |
 | 8 | 266 | 283 | `0x215BC` / `0x02206EBC` | 2 | Player: Saving `176`/`177` |
@@ -361,7 +361,7 @@ Both maps end with selection ID `0xFF`; look up the selection ID rather than tre
 | 22 | 278 | 280 | `0x217D8` / `0x022070D8` | 7 | Objects: `270`–`276` |
 | 23 | 269 | 280 | `0x217D8` / `0x022070D8` | 5 | Objects: Snorlax `395`; `349` |
 
-Index `63` means this table **is not used.** Vanilla uses it for graphics behavious `15` (3D overworlds) objects and camera focus (OW 8192), whose graphics are handled separately.
+Index `63` means this table **is not used.** Vanilla uses it for graphics behavior `15` (3D overworlds) objects and camera focus (OW 8192), whose graphics are handled separately.
 
 **Animation sequences:** at each listed sequence address, records are three 32-bit words: start, end and end mode (0 loop, 1 hold; mode 2 terminates the list). Setups 19/20 share four looping ranges: 0–19, 20–39, 40–59 and 60–79. Their model is the only descriptor difference.
 
